@@ -14,3 +14,5 @@ node_modules/
 Resources/landing/*.png
 # Developer ID identity + notary profile for build.sh (see signing.env.example)
 signing.env
+# key that encrypts .fivet backup files (build.sh creates it once; losing it makes old backups unreadable)
+Sources/fivet/BackupKey.swift
