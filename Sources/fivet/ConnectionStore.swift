@@ -208,15 +208,16 @@ final class ConnectionStore: ObservableObject {
     // MARK: Backup file (.fivet)
 
     /// Every connection (with its saved passwords and one-time-code secrets) and every setting, as
-    /// the text of a .fivet file: the same format as connections.json, so a newer FiveT can read an older file.
-    func backupData() throws -> Data { try encoded(snapshot()) }
+    /// the bytes of a .fivet file: connections.json's format, encrypted (see BackupFile).
+    func backupData() throws -> Data { try BackupFile.seal(encoded(snapshot())) }
 
     /// Reads a .fivet file: its settings replace this Mac's, its connections are added (one with the
     /// same id as a saved connection replaces it). Throws, changing nothing, when it is not a FiveT file.
     /// Returns what happened, as a sentence for the user.
     func restore(from data: Data) throws -> String {
         let f: FileFormat
-        do { f = try JSONDecoder().decode(FileFormat.self, from: data) }
+        let plain = try BackupFile.open(data)
+        do { f = try JSONDecoder().decode(FileFormat.self, from: plain) }
         catch { throw NSError(domain: "fivet", code: 1, userInfo: [NSLocalizedDescriptionKey: "This is not a FiveT settings file."]) }
         var added = 0, replaced = 0
         var list = connections

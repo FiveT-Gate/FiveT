@@ -12,6 +12,10 @@ MODE="${1:-}"
 if [ ! -f Sources/fivet/LocalSeeds.swift ]; then
   printf 'import Foundation\n\nenum LocalSeeds { static var connections: [Connection] { [] } }\n' > Sources/fivet/LocalSeeds.swift
 fi
+# The key for .fivet backups: random, made once, kept out of git. A new key cannot open older backups.
+if [ ! -f Sources/fivet/BackupKey.swift ]; then
+  printf 'enum BackupKey { static let hex = "%s" }\n' "$(openssl rand -hex 32)" > Sources/fivet/BackupKey.swift
+fi
 ICON_SRC=Resources/AppIcon-source.png
 ICNS=build/AppIcon.icns
 VOLICNS=build/VolumeIcon.icns   # the disk image's own icon: the same picture, small sizes only

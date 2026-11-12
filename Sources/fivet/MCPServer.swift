@@ -379,8 +379,8 @@ final class MCPServer: ObservableObject {
         gateway does not push. Use resolve and check_reachability to diagnose "VPN up but \
         host unreachable" in one call; they report both the tunnel DNS and the system resolver. \
         get_log returns event lines (info and errors) by default; ask for level "debug" for openfortivpn chatter. \
-        get_settings and set_settings read and change the switches (kill switch, failover, Bypass Iranian Websites, apps-only mode and its app list, reconnect, watchdog); unblock_internet lifts a kill switch block. These protect the user's privacy: change only what they asked for. Lowering protection (kill switch off, apps-only on, Bypass Iranian Websites on, unblock_internet) makes FiveT ask the user in a dialog on the Mac; if they decline, nothing changes. In apps-only mode (V2Ray and Outline) the VPN carries just the chosen apps, which the user starts from FiveT's menu (Open with VPN): the rest of the Mac is not on the VPN, and get_status shows interface "app-proxy".
-        Passwords and one-time-code secrets are never exposed.
+        get_settings and set_settings read and change the switches (kill switch, failover, Bypass Iranian Websites, apps-only mode and its app list, reconnect, watchdog); unblock_internet lifts a kill switch block; export_settings and import_settings write and read a .fivet backup file (all connections and settings). These protect the user's privacy: change only what they asked for. Lowering protection (kill switch off, apps-only on, Bypass Iranian Websites on, unblock_internet) makes FiveT ask the user in a dialog on the Mac; if they decline, nothing changes. In apps-only mode (V2Ray and Outline) the VPN carries just the chosen apps, which the user starts from FiveT's menu (Open with VPN): the rest of the Mac is not on the VPN, and get_status shows interface "app-proxy".
+        Passwords and one-time-code secrets are never returned in a reply: the backup file holds them, encrypted so only FiveT can read it, so export_settings and import_settings always ask the user in a dialog on the Mac first.
         """
 
     private func handle(method: String, params: [String: Any], session: MCPClientSession) throws -> [String: Any] {
@@ -454,6 +454,17 @@ enum MCPTools {
         tool("unblock_internet",
              "Lifts the kill switch block that is holding the Mac's internet shut because a VPN dropped (the same as Unblock Internet in FiveT's menu). Without a VPN the Mac's traffic then goes out unprotected, so use it only when the user asks. FiveT asks the user in a dialog on the Mac first, and nothing is lifted unless they allow it.",
              properties: [:], destructive: true),
+        tool("export_settings",
+             "Writes every connection and setting to a .fivet backup file at the given path (the same as Settings → General → Export Settings). The file is encrypted: only FiveT can read it. It holds the connections' passwords and one-time-code secrets, so FiveT always asks the user in a dialog on the Mac first and nothing is written unless they allow it. Never read the file's contents unless the user asked you to. Refuses a path that already exists.",
+             properties: [
+                "path": ["type": "string", "description": "Full path of the file to create, ending in .fivet, in a folder that exists. Omit it for the default: ~/Desktop/YYYY-MM-DD_FiveT-backup.fivet (today's date, then the backup name)."],
+             ], destructive: true),
+        tool("import_settings",
+             "Reads a .fivet backup file (the same as Settings → General → Import Settings): its settings replace this Mac's and its connections are added; one with the same id as a saved connection replaces it. That can switch protection off and add connections that send traffic elsewhere, so FiveT always asks the user in a dialog on the Mac first and nothing changes unless they allow it. Returns how many connections were added and replaced.",
+             properties: [
+                "path": ["type": "string", "description": "Full path of a .fivet file exported from FiveT."],
+             ],
+             required: ["path"], destructive: true),
         tool("get_log",
              "Recent lines of FiveT's log: connect/disconnect events, authentication, tunnel up, DNS and routes, errors, MCP calls. Default level \"info\" hides openfortivpn's DEBUG chatter; packet traces are never stored unless enabled in Settings.",
              properties: [
@@ -690,6 +701,36 @@ enum MCPTools {
             onMain { VPNManager.shared.releaseKillSwitch() }
             return result(["was_blocked": was, "kill_switch_blocking": onMain { VPNManager.shared.killSwitchActive }])
 
+        case "export_settings":
+            let url = try backupURL(args["path"] ?? NSHomeDirectory() + "/Desktop/" + BackupFile.defaultName(), mustExist: false)
+            guard userAllows("save all your connections, with their passwords and one-time-code secrets, and all settings, encrypted, to the file \(url.path)", lowersProtection: false) else {
+                return result(["exported": false, "denied": true, "message": "The user did not allow this in FiveT's dialog. Nothing was written."], isError: true)
+            }
+            do {
+                // Without .atomic's overwrite surprise: a file that appeared during the dialog is refused.
+                guard !FileManager.default.fileExists(atPath: url.path) else { throw RPCError(-32602, "'\(url.path)' already exists: choose another path") }
+                let data = try onMain { try ConnectionStore.shared.backupData() }
+                try data.write(to: url, options: .atomic)
+                try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+            } catch let e as RPCError { throw e }
+            catch { return result(["exported": false, "message": error.localizedDescription], isError: true) }
+            Log.shared.write("[mcp] settings exported to \(url.path)")
+            return result(["exported": true, "path": url.path])
+
+        case "import_settings":
+            let url = try backupURL(args["path"], mustExist: true)
+            let data: Data
+            do { data = try Data(contentsOf: url); _ = try BackupFile.open(data) }   // a damaged file is refused before the user is asked
+            catch { return result(["imported": false, "message": error.localizedDescription], isError: true) }
+            guard userAllows("replace FiveT's settings and add the connections from the file \(url.path). This can switch the Kill Switch off and add VPN connections to servers you may not know", lowersProtection: true) else {
+                return result(["imported": false, "denied": true, "message": "The user did not allow this in FiveT's dialog. Nothing was changed."], isError: true)
+            }
+            do {
+                let message = try onMain { try ConnectionStore.shared.restore(from: data) }
+                Log.shared.write("[mcp] settings imported from \(url.path)")
+                return result(["imported": true, "message": message, "settings": onMain { settingsDict() }])
+            } catch { return result(["imported": false, "message": error.localizedDescription], isError: true) }
+
         case "get_diagnostics":
             let checks = Setup.checks()   // runs processes: here, not on the main thread
             return text(onMain { Diagnostics.text(checks: checks) })
@@ -712,16 +753,40 @@ enum MCPTools {
     // MARK: helpers
 
     /// Asks the user, in a dialog of FiveT's own on the Mac, whether to allow `what`. The default button is Don't Allow.
-    private static func userAllows(_ what: String) -> Bool {
+    private static func userAllows(_ what: String, lowersProtection: Bool = true) -> Bool {
         onMain {
             NSApp.activate(ignoringOtherApps: true)
             let a = NSAlert()
             a.messageText = "Allow this change?"
-            a.informativeText = "An assistant or the command line asked FiveT to \(what). This lowers the protection FiveT gives you. Allow it only if you asked for it."
+            a.informativeText = "An assistant or the command line asked FiveT to \(what)."
+                + (lowersProtection ? " This lowers the protection FiveT gives you." : " Keep the file private.")
+                + " Allow it only if you asked for it."
             a.addButton(withTitle: "Don't Allow")
             a.addButton(withTitle: "Allow")
             return a.runModal() == .alertSecondButtonReturn
         }
+    }
+
+    /// The .fivet path an assistant gave: absolute, ending in .fivet; for a read an ordinary file under 10 MB,
+    /// for a write a new file in a folder that exists.
+    private static func backupURL(_ raw: Any?, mustExist: Bool) throws -> URL {
+        guard let p = (raw as? String)?.trimmed, p.hasPrefix("/"), p.lowercased().hasSuffix(".fivet") else {
+            throw RPCError(-32602, "'path' must be a full path ending in .fivet, e.g. /path/to/2026-11-13_FiveT-backup.fivet")
+        }
+        let url = URL(fileURLWithPath: p).standardizedFileURL
+        let fm = FileManager.default
+        if mustExist {
+            let attrs = try? fm.attributesOfItem(atPath: url.path)
+            guard let attrs, attrs[.type] as? FileAttributeType == .typeRegular else { throw RPCError(-32602, "'\(url.path)' is not a file") }
+            guard (attrs[.size] as? Int ?? 0) < 10_000_000 else { throw RPCError(-32602, "'\(url.path)' is too big for a FiveT settings file") }
+        } else {
+            var isDir: ObjCBool = false
+            guard fm.fileExists(atPath: url.deletingLastPathComponent().path, isDirectory: &isDir), isDir.boolValue else {
+                throw RPCError(-32602, "the folder '\(url.deletingLastPathComponent().path)' does not exist")
+            }
+            guard !fm.fileExists(atPath: url.path) else { throw RPCError(-32602, "'\(url.path)' already exists: choose another path") }
+        }
+        return url
     }
 
     /// Call on the main thread.
@@ -732,9 +797,9 @@ enum MCPTools {
                 "watchdog": st.watchdog, "show_name_in_menu_bar": st.showNameInMenuBar]
     }
 
-    static func onMain<T>(_ body: () -> T) -> T {
-        if Thread.isMainThread { return body() }
-        return DispatchQueue.main.sync(execute: body)
+    static func onMain<T>(_ body: () throws -> T) rethrows -> T {
+        if Thread.isMainThread { return try body() }
+        return try DispatchQueue.main.sync(execute: body)
     }
 
     static func currentStatus() -> VPNStatus {
@@ -1142,6 +1207,9 @@ enum FiveTCLI {
           settings                    the switches (kill switch, failover, apps only, …)
           set <setting> <on|off>      change one switch; "set vpn_apps <path>,<path>" or "set vpn_apps none" for the app list
           unblock                     lift a kill switch block
+          export [file.fivet]         save all connections and settings to an encrypted backup file, by default
+                                      ~/Desktop/YYYY-MM-DD_FiveT-backup.fivet (FiveT asks you first)
+          import <file.fivet>         read a backup file (FiveT asks you first)
           --mcp                       run as an MCP server over stdio (for AI assistants)
           --version, --help
 
@@ -1196,6 +1264,10 @@ enum FiveTCLI {
                 else if ["off", "false", "no"].contains(args[1]) { params[args[0]] = false }
                 else { throw RPCError(2, "the value must be on or off") }
             case "unblock": tool = "unblock_internet"
+            case "export", "import":
+                tool = command == "export" ? "export_settings" : "import_settings"
+                if let path = args.first { params["path"] = path.hasPrefix("/") ? path : FileManager.default.currentDirectoryPath + "/" + path }
+                else if command == "import" { throw RPCError(2, "import needs a .fivet file path") }
             case "diagnostics", "diag": tool = "get_diagnostics"
             default: throw RPCError(2, "unknown command '\(command)'")
             }

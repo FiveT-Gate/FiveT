@@ -1080,8 +1080,8 @@ struct GeneralTab: View {
 
     private func exportSettings() {
         let panel = NSSavePanel()
-        panel.message = "The file holds your connections with their passwords and one-time-code secrets. Keep it private."
-        panel.nameFieldStringValue = "FiveT.fivet"
+        panel.message = "The file is encrypted: only FiveT can open it. It holds your connections with their passwords and one-time-code secrets."
+        panel.nameFieldStringValue = BackupFile.defaultName()
         panel.allowedContentTypes = [Self.fivetType]
         panel.begin { response in
             guard response == .OK, let url = panel.url else { return }
@@ -1164,7 +1164,7 @@ struct GeneralTab: View {
                     Button("Import Settings…") { importSettings() }
                     if let m = backupMessage { Text(m).font(.callout).foregroundStyle(.secondary) }
                 }
-                Text("A .fivet file holds all connections and settings. Import it on another Mac to copy them.")
+                Text("A .fivet file is an encrypted backup of all connections and settings. Import it on another Mac to copy them.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("About") {
