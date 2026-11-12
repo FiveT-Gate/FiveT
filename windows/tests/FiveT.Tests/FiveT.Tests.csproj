@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The rules that need no window and no tunnel, compiled straight from the app's own source files
+       (FiveT.exe is a WinUI program and cannot be referenced as a library). Run with: dotnet test -->
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <RootNamespace>FiveT.Tests</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\FiveT.Core\FiveT.Core.csproj" />
+    <Compile Include="..\..\src\FiveT\Connection.cs" Link="App\Connection.cs" />
+    <Compile Include="..\..\src\FiveT\FieldCleaner.cs" Link="App\FieldCleaner.cs" />
+    <Compile Include="..\..\src\FiveT\LoginGuard.cs" Link="App\LoginGuard.cs" />
+    <Compile Include="..\..\src\FiveT\SafeFile.cs" Link="App\SafeFile.cs" />
+    <Compile Include="..\..\src\FiveT\OpenVpnProfile.cs" Link="App\OpenVpnProfile.cs" />
+    <Compile Include="..\..\src\FiveT\V2RayConfig.cs" Link="App\V2RayConfig.cs" />
+    <Compile Include="..\..\src\FiveT\XrayConfigCheck.cs" Link="App\XrayConfigCheck.cs" />
+    <Compile Include="..\..\src\FiveT\VpnImport.cs" Link="App\VpnImport.cs" />
+    <Compile Include="..\..\src\FiveT\VpnStatus.cs" Link="App\VpnStatus.cs" />
+    <Compile Include="..\..\src\FiveT\Wfp.cs" Link="App\Wfp.cs" />
+    <Compile Include="..\..\src\FiveT\UpdateFeed.cs" Link="App\UpdateFeed.cs" />
+    <Compile Include="..\..\src\FiveT\Log.cs" Link="App\Log.cs" />
+    <Compile Include="..\..\src\FiveT\LocalSeedsEmpty.cs" Link="App\LocalSeedsEmpty.cs" />
+  </ItemGroup>
+</Project>

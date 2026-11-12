@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="FiveT.TrayFlyout"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="FiveT">
+    <Window.SystemBackdrop>
+        <DesktopAcrylicBackdrop />
+    </Window.SystemBackdrop>
+
+    <Grid x:Name="Root" KeyDown="Root_KeyDown" PreviewKeyDown="Root_PreviewKey" PreviewKeyUp="Root_PreviewKey">
+        <!-- FlyoutRowStyle and FlyoutSeparatorStyle live in App.xaml; see the note there. -->
+        <StackPanel x:Name="Panel" Padding="6" VerticalAlignment="Top" SizeChanged="Panel_SizeChanged">
+            <!-- The header takes the initial focus, so a key event that opened the flyout can never
+                 land on a Connect/Disconnect row (a ContentControl does nothing on Enter or Space). -->
+            <ContentControl x:Name="Header" IsTabStop="True" UseSystemFocusVisuals="False" HorizontalContentAlignment="Stretch"
+                            AutomationProperties.AutomationId="FlyoutHeader" AutomationProperties.Name="FiveT">
+                <Grid Padding="10,8,10,10" ColumnSpacing="12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Border Width="36" Height="36" CornerRadius="6" Background="{ThemeResource AccentFillColorDefaultBrush}">
+                        <FontIcon Glyph="&#xEA18;" FontSize="18" Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+                    </Border>
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
+                        <TextBlock Text="FiveT" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                        <TextBlock x:Name="StatusText" Style="{StaticResource CaptionTextBlockStyle}"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis"
+                                   AutomationProperties.AutomationId="FlyoutStatus" />
+                    </StackPanel>
+                </Grid>
+            </ContentControl>
+            <Border Style="{StaticResource FlyoutSeparatorStyle}" />
+            <StackPanel x:Name="Items" Spacing="1" XYFocusKeyboardNavigation="Enabled" />
+        </StackPanel>
+    </Grid>
+</Window>

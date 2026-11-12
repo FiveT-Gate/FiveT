@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="FiveT.Pages.ConnectionsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:FiveT.Pages"
+    NavigationCacheMode="Required"
+    Loaded="Page_Loaded"
+    Unloaded="Page_Unloaded">
+
+    <Grid Padding="24,8,24,0" ColumnSpacing="20">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="220" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <TextBlock x:Name="TitleText" Grid.ColumnSpan="2" Text="Forti" Style="{StaticResource TitleTextBlockStyle}" Margin="0,0,0,12" />
+        <InfoBar x:Name="ImportMessage" Grid.ColumnSpan="2" IsClosable="True" Severity="Informational" Margin="120,0,0,8" AutomationProperties.AutomationId="ImportMessage" />
+
+        <Grid Grid.Row="1" Margin="0,0,0,24">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+            <ListView x:Name="List" ItemsSource="{x:Bind Rows}" SelectionMode="Single" SelectionChanged="List_SelectionChanged"
+                      BorderThickness="1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" CornerRadius="4"
+                      Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" Padding="0,4"
+                      AutomationProperties.AutomationId="ConnectionsList">
+                <ListView.ItemTemplate>
+                    <DataTemplate x:DataType="local:ConnectionRow">
+                        <StackPanel Orientation="Horizontal" Spacing="10" AutomationProperties.Name="{x:Bind Name, Mode=OneWay}">
+                            <Ellipse Width="8" Height="8" VerticalAlignment="Center" Fill="{x:Bind Dot, Mode=OneWay}" />
+                            <TextBlock Text="{x:Bind Name, Mode=OneWay}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                    </DataTemplate>
+                </ListView.ItemTemplate>
+            </ListView>
+            <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="4" Margin="0,8,0,0">
+                <Button x:Name="AddButton" Content="+" Width="40" Click="Add_Click" ToolTipService.ToolTip="Add a connection"
+                        AutomationProperties.AutomationId="AddConnection" AutomationProperties.Name="Add connection" />
+                <Button x:Name="RemoveButton" Content="−" Width="40" Click="Remove_Click" ToolTipService.ToolTip="Remove the selected connection"
+                        AutomationProperties.AutomationId="RemoveConnection" AutomationProperties.Name="Remove connection" />
+                <Button x:Name="FortiImportButton" Click="Import_Click" ToolTipService.ToolTip="Import connections from FortiClient"
+                        AutomationProperties.AutomationId="ImportForticlient" AutomationProperties.Name="Import from FortiClient">
+                    <FontIcon Glyph="&#xE8B5;" FontSize="14" />
+                </Button>
+            </StackPanel>
+        </Grid>
+
+        <ScrollViewer Grid.Row="1" Grid.Column="1" x:Name="EditorScroller">
+            <local:ConnectionEditor x:Name="Editor" />
+        </ScrollViewer>
+        <TextBlock x:Name="Empty" Grid.Row="1" Grid.Column="1" Text="Select a connection, or press + to add one."
+                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" AutomationProperties.AutomationId="NoSelection" />
+    </Grid>
+</Page>

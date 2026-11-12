@@ -1,0 +1,22 @@
+﻿<Project>
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <Version>2.1.0</Version>
+    <Authors>FiveT</Authors>
+    <Company>FiveT</Company>
+    <Product>FiveT</Product>
+    <Copyright>© 2026 FiveT</Copyright>
+    <!-- Lets `dotnet build` work on macOS/Linux too (compile only; the app runs on Windows). -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <NoWarn>CA1416</NoWarn>
+    <!-- Nothing about the machine or the git history that built it goes into the binaries. -->
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+</Project>

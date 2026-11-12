@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>FiveT.Cli</RootNamespace>
+    <AssemblyName>fivetctl</AssemblyName>
+    <ApplicationIcon>..\FiveT\Resources\AppIcon.ico</ApplicationIcon>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\FiveT.Core\FiveT.Core.csproj" />
+  </ItemGroup>
+</Project>

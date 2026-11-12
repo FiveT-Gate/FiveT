@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="FiveT.Pages.ConnectionEditor"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:tk="using:CommunityToolkit.WinUI.Controls"
+    Loaded="UserControl_Loaded"
+    Unloaded="UserControl_Unloaded">
+
+    <StackPanel Spacing="4" Padding="0,0,4,24" MaxWidth="760" HorizontalAlignment="Stretch">
+        <TextBlock x:Name="GatewayHeader" Text="Gateway" Style="{StaticResource SettingsGroupHeaderStyle}" Margin="1,0,0,6" />
+        <tk:SettingsCard Header="Name">
+            <TextBox x:Name="NameBox" Width="{StaticResource SettingsFieldWidth}" TextChanged="NameBox_TextChanged" AutomationProperties.AutomationId="NameBox" />
+        </tk:SettingsCard>
+        <!-- OpenVPN, V2Ray, Outline: the server comes from the imported profile or link and is shown, not typed. -->
+        <tk:SettingsCard x:Name="VpnCard" Header="Server" Visibility="Collapsed" AutomationProperties.AutomationId="VpnCard">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button x:Name="CopyLinkButton" Content="Copy Link" Click="CopyLink_Click" AutomationProperties.AutomationId="CopyLink" />
+                <Button x:Name="RefreshSubButton" Content="Refresh Subscription" Click="RefreshSub_Click" AutomationProperties.AutomationId="RefreshSubscription" />
+            </StackPanel>
+        </tk:SettingsCard>
+        <tk:SettingsCard x:Name="HostCard" Header="Remote gateway">
+            <TextBox x:Name="HostBox" Width="{StaticResource SettingsFieldWidth}" TextChanged="HostBox_TextChanged" Paste="Field_Paste" LostFocus="HostBox_LostFocus" AutomationProperties.AutomationId="HostBox" />
+        </tk:SettingsCard>
+        <tk:SettingsCard x:Name="PortCard" Header="Port">
+            <NumberBox x:Name="PortBox" Minimum="1" Maximum="65535" Value="10443" SpinButtonPlacementMode="Compact" Width="140"
+                       ValueChanged="PortBox_ValueChanged" AutomationProperties.AutomationId="PortBox" />
+        </tk:SettingsCard>
+        <tk:SettingsCard x:Name="RealmCard" Header="Realm" Description="Only if your IT team gave you one">
+            <TextBox x:Name="RealmBox" Width="{StaticResource SettingsFieldWidth}" TextChanged="RealmBox_TextChanged" Paste="Field_Paste" AutomationProperties.AutomationId="RealmBox" />
+        </tk:SettingsCard>
+
+        <TextBlock x:Name="LoginHeader" Text="Login" Style="{StaticResource SettingsGroupHeaderStyle}" />
+        <InfoBar x:Name="EditorMessage" IsClosable="True" Severity="Informational" AutomationProperties.AutomationId="EditorMessage" />
+        <tk:SettingsCard x:Name="UserCard" Header="Username">
+            <TextBox x:Name="UserBox" Width="{StaticResource SettingsFieldWidth}" TextChanged="UserBox_TextChanged" Paste="Field_Paste" AutomationProperties.AutomationId="UserBox" />
+        </tk:SettingsCard>
+        <!-- Password and secret stay masked until Windows Hello (or the Windows password) says it is
+             you, like Touch ID on the Mac. Show… appears only when there is something to show. -->
+        <tk:SettingsCard x:Name="PasswordCard" Header="Password">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <PasswordBox x:Name="PasswordField" Width="{StaticResource SecretFieldWidth}" PasswordRevealMode="Hidden"
+                             PasswordChanged="PasswordField_PasswordChanged" AutomationProperties.AutomationId="PasswordBox" />
+                <Button x:Name="ShowPasswordButton" Content="Show…" MinWidth="80" Click="Show_Click" AutomationProperties.AutomationId="ShowPassword" />
+            </StackPanel>
+        </tk:SettingsCard>
+        <tk:SettingsCard x:Name="OtpCard" Header="One-time code">
+            <ComboBox x:Name="OtpBox" Width="{StaticResource SettingsFieldWidth}" SelectionChanged="OtpBox_SelectionChanged" AutomationProperties.AutomationId="OtpBox" />
+        </tk:SettingsCard>
+        <tk:SettingsCard x:Name="SecretCard" Header="TOTP secret">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <PasswordBox x:Name="SecretField" Width="{StaticResource SecretFieldWidth}" PasswordRevealMode="Hidden" FontFamily="Consolas"
+                             PasswordChanged="SecretField_PasswordChanged" AutomationProperties.AutomationId="SecretBox" />
+                <Button x:Name="ShowSecretButton" Content="Show…" MinWidth="80" Click="Show_Click" AutomationProperties.AutomationId="ShowSecret" />
+            </StackPanel>
+        </tk:SettingsCard>
+        <!-- Always here, even before a one-time-code mode is chosen: whoever holds the QR code their IT
+             team sent should not have to know about modes first. A picture can be dropped on the row. -->
+        <tk:SettingsCard x:Name="QrCard" Header="One-time code from a QR code" AllowDrop="True" DragOver="Qr_DragOver" Drop="Qr_Drop"
+                         Description="Screenshot the setup QR code with Win+Shift+S, then Paste Screenshot. You can also drop the picture here.">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Content="Paste Screenshot" Click="PasteQr_Click" AutomationProperties.AutomationId="PasteQr" />
+                <Button Content="Choose Image…" Click="ChooseQr_Click" AutomationProperties.AutomationId="ChooseQr" />
+            </StackPanel>
+        </tk:SettingsCard>
+        <tk:SettingsCard x:Name="CodeCard" Header="Current code">
+            <Button x:Name="CopyCodeButton" Content="Copy" Click="CopyCode_Click" AutomationProperties.AutomationId="CopyCode" />
+        </tk:SettingsCard>
+
+        <TextBlock x:Name="DnsHeader" Text="DNS" Style="{StaticResource SettingsGroupHeaderStyle}" />
+        <tk:SettingsCard x:Name="DnsCard" Header="DNS domains"
+                         Description="While connected, look-ups for these domains go to the VPN's DNS servers even when another VPN owns the default route. FiveT installs NRPT rules and removes them on disconnect.">
+            <TextBox x:Name="DnsBox" Width="{StaticResource SettingsFieldWidth}" TextChanged="DnsBox_TextChanged" AutomationProperties.AutomationId="DnsBox" />
+        </tk:SettingsCard>
+        <tk:SettingsCard x:Name="SplitDnsCard" Header="Split DNS" Visibility="Collapsed">
+            <TextBlock x:Name="SplitDnsText" Text="—" TextWrapping="Wrap" MaxWidth="360" AutomationProperties.AutomationId="SplitDnsText" />
+        </tk:SettingsCard>
+        <tk:SettingsCard x:Name="TunnelCard" Header="Tunnel" Visibility="Collapsed">
+            <TextBlock x:Name="TunnelText" Text="—" TextWrapping="Wrap" MaxWidth="360" Foreground="{ThemeResource TextFillColorSecondaryBrush}" AutomationProperties.AutomationId="TunnelText" />
+        </tk:SettingsCard>
+
+        <tk:SettingsExpander x:Name="AdvancedExpander" Header="Advanced" Description="Gateway certificate and extra openconnect options" Margin="0,20,0,0" AutomationProperties.AutomationId="AdvancedExpander">
+            <tk:SettingsExpander.HeaderIcon>
+                <FontIcon Glyph="&#xE90F;" />
+            </tk:SettingsExpander.HeaderIcon>
+            <tk:SettingsExpander.Items>
+                <tk:SettingsCard x:Name="CertCard" Header="Gateway certificate">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button x:Name="ReviewCardButton" Content="Review…" Click="Review_Click" AutomationProperties.AutomationId="ReviewCert" />
+                        <Button x:Name="ForgetButton" Content="Forget" Click="Forget_Click" AutomationProperties.AutomationId="ForgetCert" />
+                    </StackPanel>
+                </tk:SettingsCard>
+                <tk:SettingsCard Header="Extra openconnect options" Description="One per line, e.g. --no-dtls or --disable-ipv6. Passed to openconnect.exe as given.">
+                    <TextBox x:Name="ExtraBox" Width="{StaticResource SettingsFieldWidth}" Height="88" AcceptsReturn="True" TextWrapping="NoWrap"
+                             FontFamily="Consolas" ScrollViewer.VerticalScrollBarVisibility="Auto"
+                             TextChanged="ExtraBox_TextChanged" AutomationProperties.AutomationId="ExtraBox" />
+                </tk:SettingsCard>
+            </tk:SettingsExpander.Items>
+        </tk:SettingsExpander>
+
+        <StackPanel Orientation="Horizontal" Spacing="12" Margin="0,20,0,0">
+            <Button x:Name="ConnectButton" Content="Connect now" MinWidth="130" Style="{StaticResource AccentButtonStyle}" Click="Connect_Click" AutomationProperties.AutomationId="ConnectButton" />
+            <Button x:Name="ReviewButton" Content="Review Certificate…" Click="Review_Click" Visibility="Collapsed" AutomationProperties.AutomationId="ReviewButton" />
+            <TextBlock x:Name="StatusText" VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="480" Foreground="{ThemeResource TextFillColorSecondaryBrush}" AutomationProperties.AutomationId="ConnectionStatus" />
+        </StackPanel>
+        <TextBlock x:Name="LastText" Style="{StaticResource SettingsCaptionStyle}" AutomationProperties.AutomationId="LastText" />
+    </StackPanel>
+</UserControl>
