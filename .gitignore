@@ -1,0 +1,16 @@
+# build output
+.build/
+.build-dist/
+build/
+# real VPN credentials seeded into the maintainer's own build (build.sh recreates an empty file)
+Sources/fivet/LocalSeeds.swift
+# installers are release downloads, not stored in git
+site/*.dmg
+# tooling
+.wrangler/
+node_modules/
+.DS_Store
+# generated character renders (sources on the Desktop); the web versions in site/img are committed
+Resources/landing/*.png
+# Developer ID identity + notary profile for build.sh (see signing.env.example)
+signing.env
