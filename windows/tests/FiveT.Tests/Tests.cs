@@ -390,7 +390,7 @@ public class XrayConfigs
         Assert.DoesNotContain("sockopt", text);
         Assert.DoesNotContain("allowInsecure", text);
         Assert.DoesNotContain("\"mux\"", text);
-        o["streamSettings"]!["tlsSettings"]!["certificates"] = new JsonArray(new JsonObject { ["keyFile"] = "C:/Users/x/key.pem" });
+        o["streamSettings"]!["tlsSettings"]!["certificates"] = new JsonArray(new JsonObject { ["keyFile"] = "C:/Temp/key.pem" });
         c.V2RayOutbound = o.ToJsonString();
         Assert.Contains("keyFile", XrayConfigCheck.Check(Launch(c)).Problems);
     }
