@@ -1063,6 +1063,42 @@ struct GeneralTab: View {
     @ObservedObject var store = ConnectionStore.shared
     @ViewState private var startAtLogin = SMAppService.mainApp.status == .enabled
     @ViewState private var loginMessage: String?
+    @ViewState private var backupMessage: String?
+
+    static let repositoryURL = URL(string: "https://github.com/FiveT-Gate/FiveT")!
+    private static let fivetType = UTType(filenameExtension: "fivet") ?? .json
+
+    /// Writes every connection and setting to a .fivet file the user picks.
+    private func exportSettings() {
+        let panel = NSSavePanel()
+        panel.message = "The file holds your connections with their passwords and one-time-code secrets. Keep it private."
+        panel.nameFieldStringValue = "FiveT.fivet"
+        panel.allowedContentTypes = [Self.fivetType]
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            do {
+                try store.backupData().write(to: url, options: .atomic)
+                try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+                backupMessage = "Saved \(url.lastPathComponent)."
+            } catch {
+                backupMessage = error.localizedDescription
+            }
+        }
+    }
+
+    /// Reads a .fivet file made on this or another Mac.
+    private func importSettings() {
+        let panel = NSOpenPanel()
+        panel.message = "Choose a .fivet file exported from FiveT."
+        panel.allowedContentTypes = [Self.fivetType, .json]
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            do { backupMessage = try store.restore(from: Data(contentsOf: url)) }
+            catch { backupMessage = error.localizedDescription }
+        }
+    }
 
     var body: some View {
         Form {
@@ -1095,6 +1131,18 @@ struct GeneralTab: View {
             Section("Updates") {
                 UpdateRow()
                 Toggle("Install updates automatically", isOn: $store.autoUpdate)
+            }
+            Section("Backup") {
+                HStack {
+                    Button("Export Settings…") { exportSettings() }
+                    Button("Import Settings…") { importSettings() }
+                    if let m = backupMessage { Text(m).font(.callout).foregroundStyle(.secondary) }
+                }
+                Text("A .fivet file holds all connections and settings. Import it on another Mac to copy them.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section("About") {
+                Link("FiveT on GitHub", destination: Self.repositoryURL)
             }
             SetupSections()
         }

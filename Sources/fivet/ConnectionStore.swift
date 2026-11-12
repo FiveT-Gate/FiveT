@@ -155,8 +155,7 @@ final class ConnectionStore: ObservableObject {
         save()
     }
 
-    private func save() {
-        pendingSave = nil
+    private func snapshot() -> FileFormat {
         var f = FileFormat()
         f.showNameInMenuBar = showNameInMenuBar
         f.verboseLogging = verboseLogging
@@ -168,15 +167,56 @@ final class ConnectionStore: ObservableObject {
         f.mcpEnabled = mcpEnabled
         f.autoUpdate = autoUpdate
         f.connections = connections
+        return f
+    }
+
+    private func encoded(_ f: FileFormat) throws -> Data {
+        let enc = JSONEncoder()
+        enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return try enc.encode(f)
+    }
+
+    private func save() {
+        pendingSave = nil
         do {
-            let enc = JSONEncoder()
-            enc.outputFormatting = [.prettyPrinted, .sortedKeys]
-            let data = try enc.encode(f)
-            try data.write(to: fileURL, options: .atomic)
+            try encoded(snapshot()).write(to: fileURL, options: .atomic)
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
         } catch {
             Log.shared.write("ERROR saving connections.json: \(error)", level: .error)
         }
+    }
+
+    // MARK: Backup file (.fivet)
+
+    /// Every connection (with its saved passwords and one-time-code secrets) and every setting, as
+    /// the text of a .fivet file: the same format as connections.json, so a newer FiveT can read an older file.
+    func backupData() throws -> Data { try encoded(snapshot()) }
+
+    /// Reads a .fivet file: its settings replace this Mac's, its connections are added (one with the
+    /// same id as a saved connection replaces it). Throws, changing nothing, when it is not a FiveT file.
+    /// Returns what happened, as a sentence for the user.
+    func restore(from data: Data) throws -> String {
+        let f: FileFormat
+        do { f = try JSONDecoder().decode(FileFormat.self, from: data) }
+        catch { throw NSError(domain: "fivet", code: 1, userInfo: [NSLocalizedDescriptionKey: "This is not a FiveT settings file."]) }
+        var added = 0, replaced = 0
+        var list = connections
+        for c in f.connections {
+            if let i = list.firstIndex(where: { $0.id == c.id }) { list[i] = c; replaced += 1 } else { list.append(c); added += 1 }
+        }
+        connections = list
+        showNameInMenuBar = f.showNameInMenuBar
+        verboseLogging = f.verboseLogging
+        verbosePackets = f.verbosePackets
+        autoReconnect = f.autoReconnect
+        watchdog = f.watchdog
+        if killSwitch != f.killSwitch { killSwitch = f.killSwitch; VPNManager.shared.killSwitchChanged() }
+        bypassIran = f.bypassIran ?? bypassIran
+        mcpEnabled = f.mcpEnabled
+        autoUpdate = f.autoUpdate
+        Log.shared.write("imported a .fivet file: \(added) connection(s) added, \(replaced) replaced, \(f.unreadable) unreadable")
+        return "Imported \(added) new and \(replaced) updated connection(s) and the settings."
+            + (f.unreadable > 0 ? " \(f.unreadable) could not be read (made by a newer FiveT?)." : "")
     }
 
     func connection(id: UUID) -> Connection? {

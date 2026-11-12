@@ -20,8 +20,8 @@ OVPN_URL=https://github.com/OpenVPN/openvpn/releases/download/v$OVPN_VERSION/ope
 LZO_VERSION=2.10
 LZO_SHA256=c0f892943208266f9b6543b3ae308fab6284c5c90e627931446fb49b4221a072
 LZO_URL=https://www.oberhumer.com/opensource/lzo/download/lzo-$LZO_VERSION.tar.gz
-LZ4_VERSION=1.10.0
-LZ4_SHA256=537512904744b35e232912055ccf8ec66d768639ff3abe5788d90d792ec5f48b
+LZ4_VERSION=1.11.1
+LZ4_SHA256=683fed08a844ad012196381e40badf80c0bbe4962959761416d41c9e67d77ec7
 LZ4_URL=https://github.com/lz4/lz4/archive/refs/tags/v$LZ4_VERSION.tar.gz
 
 # OpenSSL: the static build Tools/build-openfortivpn.sh makes (same version, options and tree).

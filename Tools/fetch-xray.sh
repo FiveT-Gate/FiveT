@@ -11,11 +11,11 @@
 set -eu
 [ -f Tools/fetch-xray.sh ] || { echo "✗ run from the repository folder" >&2; exit 1; }
 
-XRAY_VERSION=26.10.29
-# The SHA2-256 line of the release's Xray-macos-arm64-v8a.zip.dgst, checked on 2026-10-30 (the download
+XRAY_VERSION=26.11.9
+# The SHA2-256 line of the release's Xray-macos-arm64-v8a.zip.dgst, checked on 2026-11-12 (the download
 # and GitHub's own digest agree). 26.10.10 and 26.10.17 were withdrawn by the project: their built-in
 # root certificate list held three roots with cracked intermediates; 26.10.21 removed them.
-XRAY_SHA256=57755127d38c0c4357e667761c78b257cf617f05015bad5060bf2dae75fcd00b
+XRAY_SHA256=233f0c66681cd0726f81a6b2b6ed6a5710869e312047b522e46ed53035bebd26
 XRAY_URL=https://github.com/XTLS/Xray-core/releases/download/v$XRAY_VERSION/Xray-macos-arm64-v8a.zip
 # Iranian and private address ranges (categories "ir" and "private"), 38 KB, from Chocolate4U's
 # Iran-v2ray-rules (GPL-3.0), which publishes a new list every day; this one is from 2026-11-10.
