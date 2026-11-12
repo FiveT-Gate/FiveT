@@ -1055,7 +1055,7 @@ final class VPNManager: ObservableObject {
                              network: s.pendingNetwork)
         s.byUser = false
         s.autoRenewed = false
-        if c.isOtherVPN { releaseKillSwitch() }   // the tunnel's routes carry everything again (a Forti tunnel's do not)
+        if c.isOtherVPN && s.appProxyPort == nil { releaseKillSwitch() }   // the tunnel's routes carry everything again (a Forti tunnel's do not)
         arm(s)
         ConnectionStore.shared.mutate(id: c.id) {
             $0.lastConnectedAt = Date(); $0.lastError = nil
@@ -1145,8 +1145,9 @@ final class VPNManager: ObservableObject {
         s.sentCredentials = false
         s.appProxyPort = appsOnly ? V2RayConfig.appProxyPort : nil
         if appsOnly {
-            // The Mac's own traffic stays where it is, so a block left by a full tunnel would only cut it off.
-            releaseKillSwitch()
+            // A block the kill switch holds for a full tunnel that dropped stays: only the user (Unblock Internet,
+            // Disconnect) lifts it, never a connect, and the server stays reachable through it.
+            if killSwitchActive { blockInternet(for: s) }
             s.pendingNetwork.interface = "app-proxy"
             s.pendingNetwork.tunnelIP = "127.0.0.1"
             s.pendingNetwork.fullTunnel = false
@@ -1193,9 +1194,10 @@ final class VPNManager: ObservableObject {
     /// ends as a failure, which processEnded reports (or retries, for a reconnect).
     private func checkV2Ray(_ s: TunnelSession, attempt: Int) {
         let run = s.process
+        let pid = run?.processIdentifier
         // A moment for the routes and the DNS setting to take effect.
         DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + (attempt == 1 ? 0.7 : 0)) { [weak self, weak s] in
-            let ok = Self.v2rayCarriesTraffic(timeout: 6, socksPort: s?.appProxyPort)
+            let ok = Self.v2rayCarriesTraffic(timeout: 6, socksPort: s?.appProxyPort, ownerPID: pid)
             DispatchQueue.main.async {
                 guard let self, let s, s.process != nil, s.process === run, s.status.phase == .connecting, !s.stopRequested else { return }
                 if ok {
@@ -1228,7 +1230,10 @@ final class VPNManager: ObservableObject {
 
     /// A small web request through whatever carries the Mac's traffic: any HTTP answer counts.
     /// Plain HTTP to two well-known "generate_204" addresses, so no certificate gets in the way.
-    static func v2rayCarriesTraffic(timeout: TimeInterval, socksPort: Int? = nil) -> Bool {
+    static func v2rayCarriesTraffic(timeout: TimeInterval, socksPort: Int? = nil, ownerPID: Int32? = nil) -> Bool {
+        // Apps-only: the proxy must be FiveT's own Xray. Another program on that port would answer the
+        // check just as well and then see everything the apps send.
+        if let port = socksPort, listenerPID(port: port) != ownerPID { return false }
         let cfg = URLSessionConfiguration.ephemeral
         cfg.timeoutIntervalForRequest = timeout
         cfg.timeoutIntervalForResource = timeout
@@ -1250,6 +1255,12 @@ final class VPNManager: ObservableObject {
             if done.wait(timeout: .now() + timeout + 1) == .success, answered { return true }
         }
         return false
+    }
+
+    /// The process that listens on 127.0.0.1:`port`, or nil.
+    static func listenerPID(port: Int) -> Int32? {
+        let out = Setup.run("/usr/sbin/lsof", ["-nP", "-iTCP@127.0.0.1:\(port)", "-sTCP:LISTEN", "-Fp"]).output
+        return out.split(separator: "\n").first { $0.hasPrefix("p") }.flatMap { Int32($0.dropFirst()) }
     }
 
     /// A utun name no interface has now, for Xray's TUN ("utun100" and up).
@@ -2062,8 +2073,8 @@ final class VPNManager: ObservableObject {
                 // Xray answers DNS and pings itself, server or no server: only a real request says.
                 server = "the V2Ray server"
                 name = "a web request"
-                let port = s.appProxyPort
-                check = { Self.v2rayCarriesTraffic(timeout: 5, socksPort: port) }
+                let port = s.appProxyPort, pid = s.process?.processIdentifier
+                check = { Self.v2rayCarriesTraffic(timeout: 5, socksPort: port, ownerPID: pid) }
             } else {
                 guard let n = s.status.network,
                       let dns = n.dnsServers.first(where: { Self.ipv4($0, isCoveredBy: n.routes) }) else {

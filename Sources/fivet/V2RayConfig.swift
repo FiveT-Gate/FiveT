@@ -587,9 +587,24 @@ enum V2RayConfig {
     /// DNS gave the server's name before the tunnel existed: with the Mac's DNS pointing into the
     /// tunnel, Xray can only look the name up through the server, which it cannot reach without the
     /// answer, so a server given by name never connected. The helper checks the config again as root.
-    /// The port of the local SOCKS proxy in apps-only mode (`tun` nil): the same for every run, so an app
-    /// started through it finds the proxy again after a reconnect.
-    static let appProxyPort = 10808
+    /// The port of the local SOCKS proxy in apps-only mode (`tun` nil). Free and unpredictable, chosen once
+    /// per FiveT launch: the same for every run of that launch, so an app started through it finds the
+    /// proxy again after a reconnect, and a program on the Mac cannot sit on a well-known port first.
+    /// VPNManager still checks, before it says "connected", that the listener is its own Xray.
+    static let appProxyPort: Int = {
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        guard fd >= 0 else { return Int.random(in: 20000..<60000) }
+        defer { close(fd) }
+        var addr = sockaddr_in()
+        addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_addr.s_addr = inet_addr("127.0.0.1")   // port 0: macOS picks a free one
+        var len = socklen_t(MemoryLayout<sockaddr_in>.size)
+        let bound = withUnsafeMutablePointer(to: &addr) { p in
+            p.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, len) == 0 && getsockname(fd, $0, &len) == 0 }
+        }
+        return bound ? Int(UInt16(bigEndian: addr.sin_port)) : Int.random(in: 20000..<60000)
+    }()
 
     static func forLaunch(_ c: Connection, tun: String?, localDNS: [String], direct: [String],
                           serverIPs: [String: [String]] = [:], verbose: Bool) throws -> String {
