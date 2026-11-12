@@ -43,7 +43,11 @@ usage: fivetctl <command> [options]
   resolve <host>              resolve via the tunnel DNS and the system resolver
   check <host> [port]         DNS + route + TCP connect diagnosis (default port 443)
   diagnostics                 full diagnostics text
-  --mcp                       run as an MCP server over stdio (for AI assistants)
+  settings                    the switches (kill switch, failover, apps only, …)
+  set <setting> <on|off>      change one switch; ""set vpn_apps <path>,<path>"" or ""set vpn_apps none"" for the app list
+                              (lowering protection asks you in a dialog in FiveT first)
+  unblock                     lift a kill switch block (asks you in a dialog in FiveT first)
+  --mcp                     run as an MCP server over stdio (for AI assistants)
   --version, --help
 
 Add --json to any command for the same JSON the MCP tools return.
@@ -306,6 +310,17 @@ internal static class Cli
                     if (Option("--port", args) is { } po) prms["port"] = int.TryParse(po, out var pi) ? pi : 443;
                     break;
                 case "diagnostics": case "diag": tool = "get_diagnostics"; break;
+                case "settings": tool = "get_settings"; break;
+                case "set":
+                    if (args.Count < 2) throw new RpcException(2, "set needs a setting and a value, e.g. set kill_switch on");
+                    tool = "set_settings";
+                    if (args[0] == "vpn_apps")
+                        prms["vpn_apps"] = Json.Array(args[1] == "none" ? Array.Empty<string>() : args[1].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+                    else if (new[] { "on", "true", "yes" }.Contains(args[1])) prms[args[0]] = true;
+                    else if (new[] { "off", "false", "no" }.Contains(args[1])) prms[args[0]] = false;
+                    else throw new RpcException(2, "the value must be on or off");
+                    break;
+                case "unblock": tool = "unblock_internet"; break;
                 default: throw new RpcException(2, $"unknown command '{command}'");
             }
         }
@@ -424,6 +439,22 @@ internal static class Cli
                 }
                 return string.Join("\n", lines);
             }
+            case "get_settings":
+            case "set_settings":
+            {
+                var lines = new List<string>();
+                foreach (var (key, value) in p)
+                {
+                    if (key is "changed" or "denied" or "message") continue;
+                    lines.Add($"{key,-24} " + (value is JsonArray a ? (a.Count == 0 ? "-" : string.Join(", ", L(a))) : value is JsonValue v && Json.Bool(v) is { } b ? (b ? "on" : "off") : S(value)));
+                }
+                if (L(p["changed"]) is { Count: > 0 } changed) lines.Add("changed: " + string.Join(", ", changed));
+                else if (tool == "set_settings" && p["denied"] == null) lines.Add("nothing changed (already so)");
+                if (Json.Str(p["message"]) is { } message) lines.Add(message);
+                return string.Join("\n", lines);
+            }
+            case "unblock_internet":
+                return Json.Str(p["message"]) ?? ((Json.Bool(p["was_blocked"]) ?? false) ? "the block is lifted" : "nothing was blocked");
             case "get_log":
                 return string.Join("\n", L(p["lines"]));
             case "resolve":

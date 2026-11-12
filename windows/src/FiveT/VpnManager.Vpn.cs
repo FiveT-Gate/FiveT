@@ -71,7 +71,11 @@ public sealed partial class VpnManager
         foreach (var o in others.Where(o => o.Status.Phase != VpnPhase.Disconnecting))
         {
             Log.Shared.Write($"[{c.Name}] switching from {o.Name}: one VPN at a time");
-            if (guarded && o.BlockOnExit != null) BlockInternet(o);
+            if (guarded && o.BlockOnExit != null)
+            {
+                Log.Shared.Write($"[{c.Name}] kill switch: blocking this PC's internet before {o.Name} stops, until {c.Name} is up");
+                BlockInternet(o);
+            }
             Halt(o);
         }
         if (others.Any(o => o.IsRunning || o.Status.Phase == VpnPhase.Disconnecting))
@@ -204,9 +208,12 @@ public sealed partial class VpnManager
                 .Distinct().OrderBy(x => x, StringComparer.Ordinal).Select(x => x + "/32").ToList();
             string? config;
             List<string> problems;
+            // Apps-only: no tunnel at all, just a local proxy the chosen apps are started with.
+            int? appPort = store.AppsOnly ? V2RayConfig.AppProxyPort : null;
             try
             {
-                (problems, config) = XrayConfigCheck.Check(V2RayConfig.ForLaunch(c, V2RayConfig.TunName, localDns, direct, found, store.VerboseLogging, store.BypassIran));
+                (problems, config) = XrayConfigCheck.Check(
+                    V2RayConfig.ForLaunch(c, appPort == null ? V2RayConfig.TunName : null, localDns, direct, found, store.VerboseLogging, store.BypassIran, appPort), appPort);
             }
             catch (V2RayException e)
             {
@@ -219,12 +226,24 @@ public sealed partial class VpnManager
                 return;
             }
             s.SentCredentials = false;
-            s.AdapterName = V2RayConfig.TunName;
-            s.PendingNetwork = new NetworkInfo
+            s.AppProxyPort = appPort;
+            if (appPort != null)
             {
-                Interface = V2RayConfig.TunName, TunnelIP = V2RayConfig.TunAddress, PeerIP = V2RayConfig.TunDns,
-                DnsServers = new List<string> { V2RayConfig.TunDns }, FullTunnel = true,
-            };
+                // A block the kill switch holds for a full tunnel that dropped stays (StartVpn kept it, with this server let
+                // through): only the user (Unblock Internet, Disconnect) lifts it, never a connect.
+                s.AdapterName = "app-proxy";
+                s.PendingNetwork = new NetworkInfo { Interface = "app-proxy", TunnelIP = "127.0.0.1", FullTunnel = false };
+                AppProxyHold.Shared.Release();   // Xray takes the port now
+            }
+            else
+            {
+                s.AdapterName = V2RayConfig.TunName;
+                s.PendingNetwork = new NetworkInfo
+                {
+                    Interface = V2RayConfig.TunName, TunnelIP = V2RayConfig.TunAddress, PeerIP = V2RayConfig.TunDns,
+                    DnsServers = new List<string> { V2RayConfig.TunDns }, FullTunnel = true,
+                };
+            }
             // Xray reads the list of Iranian and private addresses from its own folder only.
             RunEngine(s, exe, new[] { "run", "-c", "stdin:" }, config, "xray", new() { ["XRAY_LOCATION_ASSET"] = Path.GetDirectoryName(exe)! });
         });
@@ -247,9 +266,12 @@ public sealed partial class VpnManager
         {
             if (s.Status.Phase != VpnPhase.Connecting) return;
             Update(s, x => x with { Detail = "Checking the server…" });
-            // Still blocked by the kill switch: now that the tunnel's adapter exists, it may pass.
-            if (KillSwitch.IsActive) BlockInternet(s, InterfaceLuid(V2RayConfig.TunName));
-            ApplyTunnelDns(s, V2RayConfig.TunName, new List<string> { V2RayConfig.TunDns }, setAdapter: true);
+            if (s.AppProxyPort == null)
+            {
+                // Still blocked by the kill switch: now that the tunnel's adapter exists, it may pass.
+                if (KillSwitch.IsActive) BlockInternet(s, InterfaceLuid(V2RayConfig.TunName));
+                ApplyTunnelDns(s, V2RayConfig.TunName, new List<string> { V2RayConfig.TunDns }, setAdapter: true);
+            }
             CheckV2Ray(s, s.Process, 1);
         }
         else if (error && s.LastErrorLine == null) s.LastErrorLine = text;
@@ -258,10 +280,12 @@ public sealed partial class VpnManager
     /// <summary>Up once a web request gets through the server (three tries, about 20 s); otherwise the run ends as a failure, which VpnProcessEnded reports (or retries, for a reconnect).</summary>
     private void CheckV2Ray(VpnSession s, Process? run, int attempt)
     {
+        var appPort = s.AppProxyPort;
+        var pid = run?.Id;
         Task.Run(async () =>
         {
             if (attempt == 1) await Task.Delay(1500);   // a moment for the routes and the DNS rule to take effect
-            var ok = V2RayCarriesTraffic(6);
+            var ok = V2RayCarriesTraffic(6, appPort, pid);
             Ui.Post(() =>
             {
                 if (run == null || !ReferenceEquals(s.Process, run) || s.Status.Phase != VpnPhase.Connecting) return;
@@ -296,24 +320,8 @@ public sealed partial class VpnManager
     }
 
     /// <summary>A small web request through whatever carries the PC's traffic: any HTTP answer counts. Plain HTTP to two well-known "generate_204" addresses, so no certificate gets in the way.</summary>
-    public static bool V2RayCarriesTraffic(double timeoutSeconds)
-    {
-        using var client = new HttpClient(new SocketsHttpHandler { UseProxy = false, UseCookies = false, AllowAutoRedirect = false })
-        {
-            Timeout = TimeSpan.FromSeconds(timeoutSeconds),
-        };
-        foreach (var address in new[] { "http://cp.cloudflare.com/generate_204", "http://www.gstatic.com/generate_204" })
-        {
-            try
-            {
-                using var req = new HttpRequestMessage(HttpMethod.Head, address);
-                using var response = client.Send(req);
-                return true;
-            }
-            catch (Exception) { }
-        }
-        return false;
-    }
+    public static bool V2RayCarriesTraffic(double timeoutSeconds, int? socksPort = null, int? ownerPid = null) =>
+        TrafficCheck.Carries(timeoutSeconds, socksPort, ownerPid);
 
     // MARK: OpenVPN
 
@@ -588,6 +596,7 @@ public sealed partial class VpnManager
         var store = ConnectionStore.Shared;
         if (s.ReconnectAttempt > 0) Log.Shared.Write($"[{c.Name}] reconnected after {s.ReconnectAttempt} attempt(s)");
         s.ReconnectAttempt = 0;
+        s.FailedOver = false;
         s.Reconnecting = false;
         s.ReconnectDue = null;
         s.WaitingForNetwork = false;
@@ -599,7 +608,8 @@ public sealed partial class VpnManager
         {
             Phase = VpnPhase.Connected, ConnectionId = c.Id, ConnectionName = c.Name, Since = DateTime.Now, Network = s.PendingNetwork,
         });
-        ReleaseKillSwitch();   // the tunnel's routes carry everything again
+        // The tunnel's routes carry everything again (an apps-only proxy's do not, so a block stays until the user lifts it).
+        if (s.AppProxyPort == null) ReleaseKillSwitch();
         Arm(s);
         EnsureWatchdog();
         var mode = c.OtpMode;
@@ -635,6 +645,7 @@ public sealed partial class VpnManager
         RemoveSplitDns(s);
         ClearTunnelDns(s);
         Ui.Cancel(ref s.StopTimer);
+        if (s.AppProxyPort is { } held) AppProxyHold.Shared.Take(held);   // apps-only: nobody else gets the port while Xray is away
         s.Process = null;
         int code;
         try { code = proc.ExitCode; } catch { code = -1; }
@@ -697,7 +708,7 @@ public sealed partial class VpnManager
                     if (rejected) msg += " The one-time code was tried both appended to the password and as a second step.";
                 }
                 if (rejected) msg += LastConnectedNote(c);
-                if (s.ReconnectAttempt > 0 && !previous.NeedsSetup && !rejected)
+                if ((s.ReconnectAttempt > 0 || s.FailedOver) && !previous.NeedsSetup && !rejected)
                 {
                     Log.Shared.Write($"[{c.Name}] reconnect attempt {s.ReconnectAttempt} failed: {msg}", LogLevel.Error);
                     ScheduleReconnect(s, s.ReconnectAttempt + 1);
@@ -745,9 +756,11 @@ public sealed partial class VpnManager
         if (s.ProbeRunning || !s.IsRunning) return;
         s.ProbeRunning = true;
         var since = s.Status.Since;
+        var appPort = s.AppProxyPort;
+        var pid = s.Process?.Id;
         Task.Run(() =>
         {
-            var alive = V2RayCarriesTraffic(5);
+            var alive = V2RayCarriesTraffic(5, appPort, pid);
             Ui.Post(() =>
             {
                 s.ProbeRunning = false;
@@ -766,6 +779,70 @@ public sealed partial class VpnManager
                 if (s.ProbeFailures >= WatchdogStrikes) RestartDeadTunnel(s, $"tunnel stopped answering (the V2Ray server silent for {silent}s)");
             });
         });
+    }
+
+    // MARK: Switch to another VPN (the Mac's 1.20)
+
+    /// <summary>This many failed reconnects, then the next VPN takes over (Settings → General → VPN Settings).</summary>
+    private const int FailoverAfter = 3;
+
+    /// <summary>
+    /// Hands over to the next VPN in the list after <paramref name="s"/>, going round to the first at the end, when the setting is
+    /// on and <paramref name="s"/> is a VPN. False: nothing else to switch to, <paramref name="s"/> keeps retrying. Connecting
+    /// the other one stops <paramref name="s"/> ("one VPN at a time", with the kill switch still blocking in between).
+    /// </summary>
+    private bool FailOver(VpnSession s)
+    {
+        if (!ConnectionStore.Shared.AutoFailover || !s.Connection.IsOtherVpn) return false;
+        if (VpnApps.NextVpn(ConnectionStore.Shared.Connections, s.Connection.Id) is not { } next) return false;
+        Log.Shared.Write($"[{s.Name}] still down after {FailoverAfter} tries; failing over to {next.Name}", LogLevel.Error);
+        Connect(next, ConnectOrigin.Background);
+        if (_sessions.TryGetValue(next.Id, out var other)) other.FailedOver = true;
+        return true;
+    }
+
+    // MARK: Apps only (the Mac's 1.21)
+
+    /// <summary>Settings → General → apps-only was switched: a V2Ray or Outline tunnel that is up starts again in the other mode.</summary>
+    public void AppsModeChanged()
+    {
+        foreach (var s in _sessions.Values.Where(x => x.Connection.IsV2Ray && x.Status.Phase == VpnPhase.Connected).ToList())
+            RestartDeadTunnel(s, "apps-only mode was switched", lastError: null, LogLevel.Info, detail: "Switching mode…");
+    }
+
+    private VpnSession? AppProxySession => _sessions.Values.FirstOrDefault(s => s.AppProxyPort != null && s.Status.Phase == VpnPhase.Connected);
+
+    /// <summary>True while a VPN that carries the chosen apps is up.</summary>
+    public bool AppProxyReady => AppProxySession != null;
+
+    /// <summary>
+    /// Starts the app at <paramref name="path"/> through the VPN's local proxy, with the rights of the signed-in user, not FiveT's.
+    /// Chromium and Electron apps take the proxy as a switch (the environment covers programs that read it). An app that is
+    /// running ignores the switch, so it must be closed first. Returns what to tell the user when it cannot.
+    /// </summary>
+    public string? OpenThroughVpn(string path)
+    {
+        if (AppProxySession?.AppProxyPort is not { } port) return "Connect a V2Ray or Outline VPN first.";
+        var name = VpnApps.Name(path);
+        if (!ConnectionStore.Shared.VpnAppPaths.Contains(path, StringComparer.OrdinalIgnoreCase))
+            return $"{name} is not in the list of apps in Settings → General.";
+        if (!File.Exists(path)) return $"{name} was not found at {path}. Remove it in Settings → General and add it again.";
+        if (IsProgramRunning(path)) return $"{name} is already open, and an open app cannot be moved onto the VPN. Quit it (also from the tray), then choose this again.";
+        var (pid, problem) = UserProcess.Start(path, VpnApps.ProxyArguments(port), VpnApps.ProxyEnvironment(port));
+        Log.Shared.Write($"opened {name} through the VPN proxy 127.0.0.1:{port}" + (pid != null ? $" (pid {pid})" : $" (failed: {problem})"), pid != null ? LogLevel.Info : LogLevel.Error);
+        return pid != null ? null : $"Windows could not open {name}: {problem}";
+    }
+
+    /// <summary>A program with this full path is running now (any of its processes).</summary>
+    private static bool IsProgramRunning(string path)
+    {
+        foreach (var p in Process.GetProcessesByName(Path.GetFileNameWithoutExtension(path)))
+        {
+            try { if (string.Equals(p.MainModule?.FileName, path, StringComparison.OrdinalIgnoreCase)) return true; }
+            catch (Exception) { }   // a process FiveT may not look into is not the app
+            finally { p.Dispose(); }
+        }
+        return false;
     }
 
     // MARK: A full tunnel's DNS

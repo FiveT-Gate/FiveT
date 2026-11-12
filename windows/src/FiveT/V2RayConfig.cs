@@ -694,6 +694,13 @@ public static class V2RayConfig
 
     // MARK: Running
 
+    /// <summary>
+    /// The port of the local SOCKS proxy in apps-only mode: free and unpredictable, chosen once per launch of FiveT, so an app
+    /// started through it finds the proxy again after a reconnect and no program can sit on a well-known port first. The
+    /// "connected" check still makes sure the listener is FiveT's own Xray (see <see cref="TcpOwner"/>).
+    /// </summary>
+    public static readonly int AppProxyPort = AppProxyHold.PickFreePort();
+
     /// <summary>The adapter Xray creates for its TUN (one VPN at a time, so one name).</summary>
     public const string TunName = "FiveT-VPN";
     /// <summary>The PC's address on Xray's TUN (198.18.0.1/30). Xray takes every packet routed into the TUN, whatever its destination.</summary>
@@ -753,9 +760,11 @@ public static class V2RayConfig
     /// alike and nothing can loop). Browsers fall back from QUIC to TCP; voice calls and games that need UDP
     /// do not work through a V2Ray or Outline connection.
     /// </summary>
-    public static string ForLaunch(Connection c, string tun, IReadOnlyList<string> localDns, IReadOnlyList<string> direct,
-        IReadOnlyDictionary<string, List<string>> serverIps, bool verbose, bool bypassIran)
+    public static string ForLaunch(Connection c, string? tun, IReadOnlyList<string> localDns, IReadOnlyList<string> direct,
+        IReadOnlyDictionary<string, List<string>> serverIps, bool verbose, bool bypassIran, int? appPort = null)
     {
+        // Apps-only (the Mac's 1.21): no TUN and no routes, just a SOCKS proxy on 127.0.0.1:appPort that the chosen apps are started with.
+        if ((tun == null) == (appPort == null)) throw new ArgumentException("either a tunnel name or an apps-only port");
         if (Json.Parse(c.V2RayOutbound) is not JsonObject proxy
             || Json.Str(proxy["protocol"]) is not { } proto || !Protocols.Contains(proto.ToLowerInvariant()))
             throw new V2RayException("its server settings are missing");
@@ -768,14 +777,15 @@ public static class V2RayConfig
             (st["tlsSettings"] as JsonObject)?.Remove("allowInsecure");   // refused by Xray since 2026
         }
         var geo = "ext:" + GeoFile;
-        var rules = new JsonArray
+        var rules = new JsonArray();
+        if (tun != null)
         {
             // The PC's DNS questions (it asks TunDns) are answered by Xray's DNS.
-            new JsonObject { ["inboundTag"] = StringArray(new[] { "tun" }), ["network"] = "udp", ["port"] = "53", ["outboundTag"] = "dns-out" },
+            rules.Add(new JsonObject { ["inboundTag"] = StringArray(new[] { "tun" }), ["network"] = "udp", ["port"] = "53", ["outboundTag"] = "dns-out" });
             // Any other UDP is dropped (see the summary above); the log shows "[tun -> block]" for each dropped flow.
-            new JsonObject { ["inboundTag"] = StringArray(new[] { "tun" }), ["network"] = "udp", ["outboundTag"] = "block" },
-            new JsonObject { ["ip"] = StringArray(new[] { geo + ":private" }), ["outboundTag"] = "direct" },
-        };
+            rules.Add(new JsonObject { ["inboundTag"] = StringArray(new[] { "tun" }), ["network"] = "udp", ["outboundTag"] = "block" });
+        }
+        rules.Add(new JsonObject { ["ip"] = StringArray(new[] { geo + ":private" }), ["outboundTag"] = "direct" });
         if (direct.Count > 0) rules.Add(new JsonObject { ["ip"] = StringArray(direct), ["outboundTag"] = "direct" });
         var servers = new JsonArray();
         var local = localDns.FirstOrDefault();
@@ -807,24 +817,34 @@ public static class V2RayConfig
         var config = new JsonObject
         {
             ["log"] = new JsonObject { ["loglevel"] = verbose ? "info" : "warning" },
-            ["inbounds"] = new JsonArray(new JsonObject
-            {
-                ["tag"] = "tun",
-                ["protocol"] = "tun",
-                ["settings"] = new JsonObject
+            ["inbounds"] = new JsonArray(appPort is { } port
+                ? new JsonObject
                 {
-                    ["name"] = tun,
-                    ["mtu"] = 1500,
-                    ["gateway"] = StringArray(new[] { TunAddress + "/30" }),
-                    // Xray adds the routes itself and binds its own connections to the Wi-Fi or Ethernet,
-                    // re-picked when it changes. Quarters, not halves: the PC's default route stays, and
-                    // another VPN that takes everything with two halves (OpenVPN's def1) neither blocks these
-                    // routes nor wins over them.
-                    ["autoSystemRoutingTable"] = StringArray(new[] { "0.0.0.0/2", "64.0.0.0/2", "128.0.0.0/2", "192.0.0.0/2", "::/2", "4000::/2", "8000::/2", "c000::/2" }),
-                    ["autoOutboundsInterface"] = "auto",
-                },
-                ["sniffing"] = new JsonObject { ["enabled"] = true, ["destOverride"] = StringArray(new[] { "http", "tls", "quic" }), ["routeOnly"] = true },
-            }),
+                    ["tag"] = "app",
+                    ["protocol"] = "socks",
+                    ["listen"] = "127.0.0.1",
+                    ["port"] = port,
+                    ["settings"] = new JsonObject { ["auth"] = "noauth", ["udp"] = false },
+                    ["sniffing"] = new JsonObject { ["enabled"] = true, ["destOverride"] = StringArray(new[] { "http", "tls" }), ["routeOnly"] = true },
+                }
+                : new JsonObject
+                {
+                    ["tag"] = "tun",
+                    ["protocol"] = "tun",
+                    ["settings"] = new JsonObject
+                    {
+                        ["name"] = tun,
+                        ["mtu"] = 1500,
+                        ["gateway"] = StringArray(new[] { TunAddress + "/30" }),
+                        // Xray adds the routes itself and binds its own connections to the Wi-Fi or Ethernet,
+                        // re-picked when it changes. Quarters, not halves: the PC's default route stays, and
+                        // another VPN that takes everything with two halves (OpenVPN's def1) neither blocks these
+                        // routes nor wins over them.
+                        ["autoSystemRoutingTable"] = StringArray(new[] { "0.0.0.0/2", "64.0.0.0/2", "128.0.0.0/2", "192.0.0.0/2", "::/2", "4000::/2", "8000::/2", "c000::/2" }),
+                        ["autoOutboundsInterface"] = "auto",
+                    },
+                    ["sniffing"] = new JsonObject { ["enabled"] = true, ["destOverride"] = StringArray(new[] { "http", "tls", "quic" }), ["routeOnly"] = true },
+                }),
             ["outbounds"] = new JsonArray
             {
                 proxy,

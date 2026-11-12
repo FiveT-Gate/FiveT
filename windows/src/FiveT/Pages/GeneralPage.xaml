@@ -68,7 +68,7 @@
                 <ToggleSwitch x:Name="NotifySwitch" Toggled="NotifySwitch_Toggled" AutomationProperties.AutomationId="NotifySwitch" />
             </tk:SettingsCard>
 
-            <tk:SettingsCard Header="Check for updates automatically" Description="Once a day, from FiveT's GitHub releases. Only releases signed with FiveT's key are installed, and only after you agree.">
+            <tk:SettingsCard Header="Install updates automatically" Description="Checks once a day on FiveT's GitHub releases, downloads quietly and installs when no VPN is connected. Only releases signed with FiveT's key are installed. When off, use Updates below.">
                 <tk:SettingsCard.HeaderIcon>
                     <FontIcon Glyph="&#xE895;" />
                 </tk:SettingsCard.HeaderIcon>
@@ -81,6 +81,24 @@
                     <FontIcon Glyph="&#xE72E;" />
                 </tk:SettingsCard.HeaderIcon>
                 <ToggleSwitch x:Name="KillSwitchSwitch" Toggled="KillSwitchSwitch_Toggled" AutomationProperties.AutomationId="KillSwitchSwitch" />
+            </tk:SettingsCard>
+            <tk:SettingsCard Header="Use the VPN for Chosen Apps Only" Description="For V2Ray and Outline. Only the apps below use the VPN, and the rest of this PC stays as it is. Start them from FiveT's menu (Open with VPN). While the VPN is down they have no internet at all. Works for apps built on Chrome (Chrome, Edge, Claude, Slack, VS Code…), not for most other programs.">
+                <tk:SettingsCard.HeaderIcon>
+                    <FontIcon Glyph="&#xE71D;" />
+                </tk:SettingsCard.HeaderIcon>
+                <ToggleSwitch x:Name="AppsOnlySwitch" Toggled="AppsOnlySwitch_Toggled" AutomationProperties.AutomationId="AppsOnlySwitch" />
+            </tk:SettingsCard>
+            <StackPanel x:Name="AppsPanel" Spacing="4" Visibility="Collapsed">
+                <StackPanel x:Name="AppsList" Spacing="4" />
+                <tk:SettingsCard Header="Add App…" Description="Choose the program's .exe file." Margin="32,0,0,0">
+                    <Button Content="Add App…" Click="AddApp_Click" AutomationProperties.AutomationId="AddApp" />
+                </tk:SettingsCard>
+            </StackPanel>
+            <tk:SettingsCard Header="Switch to Another VPN if One Stops Working" Description="If a VPN stays down after a few tries, FiveT connects the next VPN in your list, and keeps going round the list until one works.">
+                <tk:SettingsCard.HeaderIcon>
+                    <FontIcon Glyph="&#xE8AB;" />
+                </tk:SettingsCard.HeaderIcon>
+                <ToggleSwitch x:Name="FailoverSwitch" Toggled="FailoverSwitch_Toggled" AutomationProperties.AutomationId="FailoverSwitch" />
             </tk:SettingsCard>
             <tk:SettingsCard Header="Bypass Iranian Websites" Description="V2Ray and Outline: .ir sites and Iranian addresses skip the server and go direct, also those only Iranian DNS knows.">
                 <tk:SettingsCard.HeaderIcon>
@@ -133,6 +151,7 @@
                 </StackPanel>
             </tk:SettingsCard>
             <TextBlock x:Name="AboutText" Style="{StaticResource SettingsCaptionStyle}" Margin="1,0,0,0" />
+            <HyperlinkButton Content="FiveT on GitHub" NavigateUri="https://github.com/FiveT-Gate/FiveT" AutomationProperties.AutomationId="GitHubLink" />
         </StackPanel>
     </ScrollViewer>
 </Page>

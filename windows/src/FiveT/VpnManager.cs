@@ -1533,6 +1533,7 @@ public sealed partial class VpnManager
         s.ReconnectAttempt = attempt;
         s.Reconnecting = true;
         if (!NetTools.HasUnderlyingNetwork()) { WaitForNetwork(s, why); return; }
+        if (attempt > FailoverAfter && FailOver(s)) return;
         var c = s.Connection;
         s.WaitingForNetwork = false;
         var delay = ReconnectDelay(attempt);
@@ -1779,17 +1780,18 @@ public sealed partial class VpnManager
     }
 
     /// <summary>Stops openconnect while the session still counts as connected, so ProcessEnded treats it as a drop.</summary>
-    private void RestartDeadTunnel(VpnSession s, string reason)
+    private void RestartDeadTunnel(VpnSession s, string reason, string? lastError = "The tunnel stopped answering.", LogLevel level = LogLevel.Error,
+        string detail = "Not answering, reconnecting…")
     {
         if (s.Process is not { HasExited: false } p) return;
-        Log.Shared.Write($"[{s.Name}] {reason}; reconnecting", LogLevel.Error);
-        s.LastErrorLine = "The tunnel stopped answering.";
+        Log.Shared.Write($"[{s.Name}] {reason}; reconnecting", level);
+        s.LastErrorLine = lastError;
         s.ProbeFailures = 0;
         // ProcessEnded reconnects even when Auto-reconnect is off: the user did not choose this drop.
         s.RestartRequested = true;
         if (s.BlockOnExit != null) BlockInternet(s);   // before its routes go, so nothing slips out
         ClearTunnelDns(s);
-        Update(s, x => x with { Detail = "Not answering, reconnecting…" });
+        Update(s, x => x with { Detail = detail });
         var ok = false;
         try { ok = Native.SendCtrlC(p.Id); } catch { }
         if (!ok) { try { p.Kill(true); } catch { } }

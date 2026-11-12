@@ -25,6 +25,8 @@
     <Compile Include="..\..\src\FiveT\Wfp.cs" Link="App\Wfp.cs" />
     <Compile Include="..\..\src\FiveT\UpdateFeed.cs" Link="App\UpdateFeed.cs" />
     <Compile Include="..\..\src\FiveT\Backup.cs" Link="App\Backup.cs" />
+    <Compile Include="..\..\src\FiveT\VpnApps.cs" Link="App\VpnApps.cs" />
+    <Compile Include="..\..\src\FiveT\AppProxy.cs" Link="App\AppProxy.cs" />
     <Compile Include="..\..\src\FiveT\Log.cs" Link="App\Log.cs" />
     <Compile Include="..\..\src\FiveT\LocalSeedsEmpty.cs" Link="App\LocalSeedsEmpty.cs" />
   </ItemGroup>
