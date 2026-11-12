@@ -18,7 +18,8 @@ public sealed class ConnectionStore : IConnectionList
 
     private bool _notify, _autoReconnect = true, _verboseLogging, _verbosePackets, _mcpEnabled = true;
     private bool _welcomeShown, _watchdog = true, _killSwitch, _bypassIran = true;
-    private bool _autoUpdateCheck = true;
+    private bool _autoUpdateCheck = true, _autoFailover, _appsOnly;
+    private List<string> _vpnApps = new();
     private string _openconnectPath = "";
 
     /// <summary>Settings → General → VPN Settings: block this PC's internet while a VPN that carries all traffic is down
@@ -27,6 +28,19 @@ public sealed class ConnectionStore : IConnectionList
     /// <summary>V2Ray and Outline: .ir names and Iranian addresses skip the server and go direct (the Mac's bypassIran). On by default.</summary>
     public bool BypassIran { get => _bypassIran; set { _bypassIran = value; Persist(); Changed?.Invoke(); } }
     public event Action? KillSwitchChanged;
+
+    /// <summary>Settings → General → VPN Settings: a VPN that stays down after a few reconnect tries hands over to the next VPN in the list (the Mac's autoFailover). Off by default.</summary>
+    public bool AutoFailover { get => _autoFailover; set { _autoFailover = value; Persist(); Changed?.Invoke(); } }
+    /// <summary>
+    /// V2Ray and Outline only: the VPN carries just the apps in <see cref="VpnAppPaths"/>, which FiveT starts through its local proxy
+    /// (Chrome, Edge, Claude, Slack, VS Code…). Nothing else on this PC uses it, and an app started that way has no internet at all
+    /// while the VPN is down (the Mac's appsOnly). Off by default.
+    /// </summary>
+    public bool AppsOnly { get => _appsOnly; set { if (_appsOnly == value) return; _appsOnly = value; Persist(); Changed?.Invoke(); AppsOnlyChanged?.Invoke(); } }
+    public event Action? AppsOnlyChanged;
+    /// <summary>Full paths of the chosen programs (see <see cref="VpnApps.Clean"/>).</summary>
+    public IReadOnlyList<string> VpnAppPaths => _vpnApps;
+    public void SetVpnAppPaths(IEnumerable<string?> paths) { _vpnApps = VpnApps.Clean(paths); Persist(); Changed?.Invoke(); }
 
     /// <summary>Show a notification balloon when the connection state changes (the Windows counterpart of "name in menu bar").</summary>
     public bool NotifyOnChange { get => _notify; set { _notify = value; Persist(); Changed?.Invoke(); } }
@@ -41,7 +55,7 @@ public sealed class ConnectionStore : IConnectionList
     /// <summary>"Reconnect when the tunnel stops answering": the watchdog (on by default, as on the Mac).</summary>
     public bool Watchdog { get => _watchdog; set { _watchdog = value; Persist(); Changed?.Invoke(); } }
 
-    /// <summary>"Check for updates automatically": once a day, from FiveT's own GitHub releases (on by default).</summary>
+    /// <summary>"Install updates automatically": check once a day on FiveT's own GitHub releases, download quietly, install when no tunnel is up (on by default). Off = no automatic check.</summary>
     public bool AutoUpdateCheck { get => _autoUpdateCheck; set { _autoUpdateCheck = value; Persist(); Changed?.Invoke(); } }
     /// <summary>Settings has opened by itself once (the first start); it does not do that again.</summary>
     public bool WelcomeShown { get => _welcomeShown; set { _welcomeShown = value; Persist(); } }
@@ -253,6 +267,9 @@ public sealed class ConnectionStore : IConnectionList
         _watchdog = Json.Bool(root["watchdog"]) ?? true;
         _autoUpdateCheck = Json.Bool(root["autoUpdateCheck"]) ?? true;
         _killSwitch = Json.Bool(root["killSwitch"]) ?? false;
+        _autoFailover = Json.Bool(root["autoFailover"]) ?? false;
+        _appsOnly = Json.Bool(root["appsOnly"]) ?? false;
+        _vpnApps = VpnApps.Clean((root["vpnApps"] as JsonArray)?.Select(Json.Str));
         // "Bypass Iranian Websites" used to be set per V2Ray connection on the Mac (v2rayIranDirect): a file
         // from then means on, unless every V2Ray connection had it off.
         var list = ReadConnections(root, out var skipped, out var anyV2Ray, out var anyIranDirect);
@@ -410,6 +427,9 @@ public sealed class ConnectionStore : IConnectionList
                 ["watchdog"] = _watchdog,
                 ["autoUpdateCheck"] = _autoUpdateCheck,
                 ["killSwitch"] = _killSwitch,
+                ["autoFailover"] = _autoFailover,
+                ["appsOnly"] = _appsOnly,
+                ["vpnApps"] = Json.Array(_vpnApps),
                 ["bypassIran"] = _bypassIran,
                 ["welcomeShown"] = _welcomeShown,   // Windows only; the Mac drops it when it saves
             };
@@ -496,6 +516,9 @@ public sealed class ConnectionStore : IConnectionList
             ["autoReconnect"] = _autoReconnect,
             ["watchdog"] = _watchdog,
             ["killSwitch"] = _killSwitch,
+            ["autoFailover"] = _autoFailover,
+            ["appsOnly"] = _appsOnly,
+            ["vpnApps"] = Json.Array(_vpnApps),
             ["bypassIran"] = _bypassIran,
             ["mcpEnabled"] = _mcpEnabled,
         };
@@ -531,6 +554,7 @@ public sealed class ConnectionStore : IConnectionList
 
         var kill = _killSwitch;
         var mcp = _mcpEnabled;
+        var apps = _appsOnly;
         Connections = list;
         // A setting the file does not hold stays as it is. The Mac's showNameInMenuBar and autoUpdate mean something else here.
         _notify = Json.Bool(root["notifyOnChange"]) ?? _notify;
@@ -541,7 +565,13 @@ public sealed class ConnectionStore : IConnectionList
         _killSwitch = Json.Bool(root["killSwitch"]) ?? _killSwitch;
         _bypassIran = Json.Bool(root["bypassIran"]) ?? _bypassIran;
         _mcpEnabled = Json.Bool(root["mcpEnabled"]) ?? _mcpEnabled;
+        _autoFailover = Json.Bool(root["autoFailover"]) ?? _autoFailover;
+        // The Mac's list holds Mac apps, which are dropped here. Apps-only is only taken from a file that leaves at least one
+        // app to use it with: an empty list would put no app on the VPN and take the rest of the PC off it.
+        if (root["vpnApps"] is JsonArray fileApps) _vpnApps = VpnApps.Clean(fileApps.Select(Json.Str));
+        if (Json.Bool(root["appsOnly"]) is { } fileAppsOnly) _appsOnly = fileAppsOnly && _vpnApps.Count > 0;
         Persist();
+        if (_appsOnly != apps) AppsOnlyChanged?.Invoke();
         if (_killSwitch != kill) KillSwitchChanged?.Invoke();
         if (_mcpEnabled != mcp) McpEnabledChanged?.Invoke(_mcpEnabled);
         Changed?.Invoke();

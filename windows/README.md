@@ -21,10 +21,11 @@ FiveT lands in `C:\Program Files\FiveT`, gets a Start Menu entry and an Add/Remo
 and (unless you clear the checkbox) registers the logon task so every later start is elevated with
 no prompt. The same file installs over an existing copy and keeps your connections.
 
-FiveT checks once a day for a new version (Settings → General → *Check for updates automatically*, on by
-default). A new version is only offered when its setup file is signed with FiveT's release key; you decide whether
-to install it, and your connections in `%LOCALAPPDATA%\FiveT` are untouched. You can also run a newer setup file
-by hand over the old copy. See [Updates](#updates).
+FiveT updates itself, like the Mac app (Settings → General → *Install updates automatically*, on by
+default). Once a day it looks for a new version, downloads it quietly and installs it when no VPN is connected, with
+no dialog. Only a setup file signed with FiveT's release key is installed, and your connections in
+`%LOCALAPPDATA%\FiveT` are untouched. You can also run a newer setup file by hand over the old copy.
+See [Updates](#updates).
 
 Nothing else to install: the setup file brings its own **OpenConnect** (in
 `C:\Program Files\FiveT\openconnect`), the way the Mac app brings its own openfortivpn since 1.7.
@@ -318,7 +319,37 @@ layout of the Mac's `connections.json`, so it opens on both.
   `connections.json.before-import` (it is encrypted like `connections.json`). A file that is not a FiveT file is refused and
   changes nothing.
 - **Only settings that mean the same on both apps travel.** The Mac's menu-bar name and automatic install, and this app's
-  openconnect.exe path and update check, are left alone.
+  openconnect.exe path and update check, are left alone. The list of chosen apps holds programs of the app that wrote it: a Mac's apps
+  are dropped on import, and apps-only is only switched on by a file that leaves at least one program for this PC (an empty list would
+  take the rest of the PC off the VPN).
+
+## Switch to Another VPN if One Stops Working
+
+Settings → General → **Switch to Another VPN if One Stops Working** (off by default; the Mac's 1.20). If a V2Ray, Outline or OpenVPN
+connection stays down after **3** failed reconnect tries, FiveT connects the **next VPN in the list** (Settings → VPN, top to bottom) and
+goes round to the first at the end, until one works. Only VPNs take part, never Forti connections. One VPN runs at a time, so the next
+one stops the failed one first, with the kill switch still blocking in between. Each new VPN gets the same three tries.
+
+## Use the VPN for Chosen Apps Only ("Open with VPN")
+
+Settings → General → **Use the VPN for Chosen Apps Only** (V2Ray and Outline; off by default; the Mac's 1.21). Instead of a tunnel that
+takes all of the PC's traffic, FiveT runs Xray as a **local SOCKS proxy on `127.0.0.1`** (a free port chosen at random for each launch of
+FiveT), and only the apps you choose use it. The rest of the PC stays on its normal connection.
+
+- **Add App…** takes the program's `.exe` file (full path). With the switch on, FiveT's tray menu has an **Open with VPN** section with
+  one row per app, enabled while a V2Ray or Outline VPN is connected. The app is started with `--proxy-server=socks5://127.0.0.1:<port>`
+  (and `ALL_PROXY` in its environment).
+- **Works for Chromium and Electron apps** (Chrome, Edge, Claude, Slack, VS Code, Discord…), not for most other programs, which ignore the
+  switch. An app that is already open ignores it too: FiveT says so; quit the app (also from the tray), then start it from the menu.
+- **No internet while the VPN is down.** The app has no other way out, and while Xray is away (a reconnect, a disconnect) FiveT holds the
+  port itself and closes every connection at once, so no other program can take the port and receive what the app sends. "Connected" is only
+  said once the listener on the port is FiveT's own Xray (the owner of the port is checked) and a web request gets through it.
+- **Started with your own rights.** FiveT runs as administrator, but the app is started with the rights of your desktop (a copy of the
+  shell's token), never with FiveT's. On a PC with UAC that is an unelevated app. If that is not possible nothing is started.
+- Switching the mode restarts a V2Ray or Outline tunnel that is up. A kill switch block held for a full tunnel that dropped stays when you
+  connect in this mode: only Unblock Internet or Disconnect lifts it.
+- Xray runs as administrator, so FiveT's config check allows this one extra way in and nothing else: a SOCKS proxy on `127.0.0.1`, exactly
+  that port, no login, no UDP, no tunnel next to it.
 
 ## AI assistants (MCP)
 
@@ -343,6 +374,15 @@ Shield → **Settings** → **MCP** tab:
 | `get_diagnostics` | the same text as Copy Diagnostics |
 | `resolve` | `{host}` — answer from the tunnel's DNS servers *and* from the system resolver |
 | `check_reachability` | `{host, port=443}` — DNS both ways, route check, TCP connect, plain-language diagnosis |
+| `get_settings` | the switches: `kill_switch`, `bypass_iranian_websites`, `failover`, `apps_only`, `vpn_apps`, `auto_reconnect`, `watchdog`, `notify_on_change` |
+| `set_settings` | only the switches given; `vpn_apps` replaces the whole list (full `.exe` paths). **Lowering protection asks you first** (below) |
+| `unblock_internet` | lifts a kill switch block, **after you say yes in a dialog** |
+
+**Lowering protection needs your yes.** When an assistant or `fivetctl` asks to turn the Kill Switch off, put only the chosen apps on the
+VPN, send Iranian websites around the VPN, or lift a kill switch block, FiveT shows its own dialog, "Allow this change?", with
+*Don't Allow* as the safe answer (nothing is pre-selected, *Allow* only works after a second, and no answer in five minutes is a no).
+Each request has its own dialog. If a setting moved while the dialog was open, a change you did not see is refused, and the assistant is
+told nothing changed. Turning protection on, or changing the other switches, needs no question.
 
 `connect` and `disconnect` report the real outcome (or the error). Every call is written to the log.
 `resolve` and `check_reachability` look at *every* connected tunnel (their DNS servers and routes
@@ -369,6 +409,10 @@ $F = "C:\Program Files\FiveT\fivetctl.exe"
 & $F log --lines 50 --level info --connection Office --since 2026-09-05T19:00:00Z --grep auth
 & $F resolve admin.corp.example
 & $F check admin.corp.example 443
+& $F settings               # the switches
+& $F set failover on        # one switch (on|off); lowering protection asks you in a dialog first
+& $F set vpn_apps "C:\Program Files\Slack\slack.exe,C:\Program Files\Google\Chrome\Application\chrome.exe"   # or: set vpn_apps none
+& $F unblock                # lift a kill switch block (asks you first)
 & $F status --json          # any command: the same JSON the MCP tools return
 & $F --help
 ```
@@ -411,7 +455,8 @@ Values are never written to the log or the diagnostics, only the option names.
 
 The **General** tab has the setup status (*Set Up FiveT* / *Add Your VPN…*, and Requirements),
 "Start FiveT at login" (the login task), auto-reconnect, notifications, the fivet:// question,
-Backup (export and import settings), Copy Diagnostics and the log switches.
+the VPN switches (Kill Switch, chosen apps only, switch to another VPN, Bypass Iranian Websites), Backup (export and import settings),
+Copy Diagnostics and the log switches.
 
 ## Files
 
@@ -540,7 +585,7 @@ and paste it. Files cannot be dragged onto FiveT (it runs elevated): use + → F
 **Build.** `.\build.ps1 -Installer` → `release\FiveT-Setup-<ver>.exe` (x64) and `-arm64.exe`. The engines are
 fetched once by `Tools\fetch-engines.ps1` into `engines\` (git-ignored), each checked against a pinned
 SHA-256; OpenVPN comes from the OpenVPN project's CI build of the 2.6.23 release commit (needs `gh`). Tests:
-`dotnet test tests\FiveT.Tests` (77 checks). Windows 10 1809 or later, x64 or ARM64, administrator rights at
+`dotnet test tests\FiveT.Tests` (115 checks). Windows 10 1809 or later, x64 or ARM64, administrator rights at
 install; nothing else to install. The setup files are **not code-signed** (Windows SmartScreen will warn).
 
 **Measured on this ARM64 laptop** (launch = start to "FiveT launched" in the log, 3 runs; memory = private
@@ -589,8 +634,10 @@ Settings → General → Updates → *Check Now*. The file names one setup file 
   (one per line). The public key is in `src/FiveT/UpdateFeed.cs`; the private key is held by whoever publishes. FiveT
   refuses a feed entry without a valid signature, a URL outside `https://github.com/FiveT-Gate/FiveT/releases/download/`,
   or a version that is not newer than the running one.
-- When a newer release is found FiveT asks once before downloading it. It then downloads the setup file into
-  `updates\` inside its install folder, checks the SHA-256, quits, runs the setup silently and starts again.
+- When a newer release is found FiveT downloads the setup file into `updates\` inside its install folder in the
+  background and checks the SHA-256. It waits until no tunnel is in use (two looks 3 minutes apart), then quits, runs
+  the setup silently and starts again. *Install and Restart* in Settings → General → Updates does it at once. With the
+  switch off FiveT makes no automatic check; *Check Now* still works. Nothing installs when FiveT is quit by hand.
   A copy that does not run elevated from an administrator-only folder (a developer build, a per-user install) only
   reports that an update exists, because FiveT never runs a file that an ordinary program could have replaced.
 - The Mac app's feed is a different file (`releases/latest/download/latest.json`). Windows releases are therefore

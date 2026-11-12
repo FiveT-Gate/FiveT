@@ -253,7 +253,11 @@ FiveT again). Do not undo:
   then sign with the new one.
 - **FiveT runs elevated, so it installs only from an admin-only folder** (`Setup.IsAdminOnlyDirectory`, `updates\` inside the
   install folder). A developer or per-user copy only reports the update. `FIVET_UPDATE_URL` is read in developer mode only.
-- Download URLs must start with `UpdateFeed.UrlPrefix`; the user is asked before anything is downloaded.
+- Download URLs must start with `UpdateFeed.UrlPrefix`.
+- **Automatic, like the Mac: no dialogs.** `AutoUpdateCheck` (Settings "Install updates automatically", on by default, off = no
+  automatic check) downloads the setup in the background (phase `Ready`) and installs it after two quiet looks 3 minutes
+  apart (`QuietTick`; `IsBusy` = `VpnManager.IsRunning`). "Install and Restart" skips the wait. Not done (Mac installs at quit):
+  nothing installs when FiveT is quit by hand or at logoff, because a setup killed by shutdown could leave a half install.
 
 ## Backup (.fivet): things not to undo
 
@@ -272,6 +276,36 @@ refuse to run elevated). Do not undo:
 - `ReadConnections` is shared by `Load` and `Restore`: change the reading of a connection there once.
 - Verified with a throwaway harness that compiled `ConnectionStore.cs` in `FIVET_DEV=1` mode (export, import, round trip, a Mac-style
   file, refused files); the file dialogs and the Settings buttons are not covered by automated tests.
+
+## Mac 1.20 to 1.21.2 parity (failover, apps-only, MCP settings): things not to undo
+
+Code: `VpnApps.cs` (pure rules: app paths, `NextVpn`, `Protection.Lowering`), `AppProxy.cs` (`AppProxyHold`, `TcpOwner`, `TrafficCheck`),
+`UserProcess.cs` (start an app with the desktop's rights), `V2RayConfig.ForLaunch(..., appPort)`, `XrayConfigCheck.Check(text, appPort)`,
+`VpnManager.Vpn.cs` ("Switch to another VPN" and "Apps only" sections), `McpTools` (`get_settings`, `set_settings`, `unblock_internet`).
+Do not undo:
+
+- **Apps-only has no tunnel.** `ForLaunch` gets either a tunnel name or `appPort`, never both. The one inbound is `socks` on `127.0.0.1:<port>`,
+  no login, no UDP; no DNS-hijack or UDP-block rules. `XrayConfigCheck` (Xray runs as administrator) allows exactly that inbound, only when
+  asked with the same `appPort`, and then no other inbound.
+- **The port** is `V2RayConfig.AppProxyPort`, picked once per launch (`AppProxyHold.PickFreePort`). `AppProxyHold` holds it (exclusive bind,
+  accept-and-close) whenever Xray is away, `Release()` just before Xray starts, `Take()` in `VpnProcessEnded`. "Connected" needs
+  `TcpOwner.ListenerPid(port) == xray's pid` and a web request through the proxy (`TrafficCheck.Carries`). Never skip the owner check.
+- **A connect never lifts a kill switch block in apps-only mode** (`VpnTunnelUp` calls `ReleaseKillSwitch` only when `AppProxyPort == null`).
+- **Apps are started with the desktop's rights, never FiveT's.** `UserProcess.Start` copies the token of the shell window's process
+  (`GetShellWindow`, not "the first explorer.exe") and creates the process with `CreateProcessWithTokenW`. A parent-process attribute does
+  NOT change the token (tested: the child stayed elevated). On a PC whose desktop itself runs elevated (this development PC does) the app
+  is as elevated as everything else there; the unelevated result was proved with a filtered token through the same code (`StartWithToken`).
+  If no token can be had, nothing starts: never a fallback to FiveT's own rights.
+- **Failover** = 3 failed reconnects (`FailoverAfter`), then `VpnApps.NextVpn` (VPNs only, in list order, round to the first). The next VPN
+  gets `FailedOver` so its first failed try is retried and the chain goes on; `VpnTunnelUp` clears it.
+- **MCP lowering needs a dialog.** `kill_switch` off, `apps_only` on, `bypass_iranian_websites` on and `unblock_internet` (when blocked) ask
+  with `PromptWindow` (`Warning`, own key per request, no answer in 5 minutes = no). The change is applied in one UI-thread step that re-reads
+  the settings and refuses a lowering change that was not in what was allowed (Mac 1.21.2). `Protection.Lowering` decides, and is unit-tested.
+- **Import of a `.fivet` file** drops Mac app paths (`VpnApps.Clean`) and takes `appsOnly` only when the list is not empty.
+- Verified: unit tests (`VpnAppRules`, `AppsOnlyConfig`, `AppProxyPorts`, `ProtectionRules`); a throwaway harness ran the REAL xray.exe with the
+  apps-only config (accepted, SOCKS5 no-login, loopback only, owner check, hand-over from the hold); `UserProcess` in an elevated shell.
+  NOT verified: a real V2Ray or Outline server through the proxy, an app started from the menu against one, failover with real servers, the
+  MCP dialog on a running copy.
 
 ## Known unverified points
 

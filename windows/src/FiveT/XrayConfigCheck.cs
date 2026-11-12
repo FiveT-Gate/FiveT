@@ -20,6 +20,7 @@ public static class XrayConfigCheck
     private static readonly string[] TopLevel = { "log", "inbounds", "outbounds", "routing", "dns", "policy" };
     private static readonly string[] LogKeys = { "loglevel", "dnsLog", "maskAddress" };
     private static readonly string[] InboundKeys = { "tag", "protocol", "settings", "sniffing" };
+    private static readonly string[] AppInboundKeys = { "tag", "protocol", "listen", "port", "settings", "sniffing" };
     private static readonly string[] OutboundProtocols = { "vless", "vmess", "trojan", "shadowsocks", "hysteria", "freedom", "blackhole", "dns" };
     private static readonly Regex PlainKey = new("^[A-Za-z0-9_.:-]+$", RegexOptions.CultureInvariant);
     private static readonly Regex ExternalList = new("^(ext|ext-ip|ext-domain|ext-site):", RegexOptions.CultureInvariant);
@@ -29,14 +30,18 @@ public static class XrayConfigCheck
     /// What the config holds that FiveT does not allow (empty when it may run), and the config re-written
     /// from what was parsed: that text, not the input, is what Xray is given.
     /// </summary>
-    public static (List<string> Problems, string? Rewritten) Check(string text)
+    public static (List<string> Problems, string? Rewritten) Check(string text, int? appPort = null)
     {
         // Anything the check itself trips over (the same key twice in one object, say) refuses the config.
-        try { return CheckCore(text); }
+        try { return CheckCore(text, appPort); }
         catch (Exception) { return (new List<string> { "a config FiveT could not check" }, null); }
     }
 
-    private static (List<string> Problems, string? Rewritten) CheckCore(string text)
+    /// <summary>
+    /// <paramref name="appPort"/>: apps-only mode (the Mac's 1.21). The one way in is then a SOCKS proxy on 127.0.0.1 and exactly
+    /// this port, no login, no UDP, and no TUN; otherwise the TUN is the only way in.
+    /// </summary>
+    private static (List<string> Problems, string? Rewritten) CheckCore(string text, int? appPort)
     {
         var bad = new List<string>();
         void No(string w) { if (!bad.Contains(w)) bad.Add(w); }
@@ -58,15 +63,28 @@ public static class XrayConfigCheck
         {
             foreach (var i in inbounds)
             {
-                if (i is not JsonObject inbound || Json.Str(inbound["protocol"]) != "tun")
+                var protocol = Json.Str((i as JsonObject)?["protocol"]);
+                if (i is JsonObject app && protocol == "socks" && appPort is { } port)
                 {
-                    No("inbound " + (Json.Str((i as JsonObject)?["protocol"]) ?? "null"));
+                    Only(app, AppInboundKeys, "app inbound ");
+                    if (Json.Str(app["tag"]) != "app") No("app inbound tag");
+                    if (Json.Str(app["listen"]) != "127.0.0.1") No("app inbound listen " + (Json.Str(app["listen"]) ?? "null"));
+                    if (Json.Int(app["port"]) != port) No("app inbound port");
+                    var settings = app["settings"] as JsonObject;
+                    Only(settings, new[] { "auth", "udp" }, "app inbound settings ");
+                    if (settings == null || Json.Str(settings["auth"]) != "noauth" || Json.Bool(settings["udp"]) != false) No("app inbound settings");
+                    continue;
+                }
+                if (i is not JsonObject inbound || protocol != "tun" || appPort != null)
+                {
+                    No("inbound " + (protocol ?? "null"));
                     continue;
                 }
                 Only(inbound, InboundKeys, "tun inbound ");
                 var name = (inbound["settings"] as JsonObject)?["name"];
                 if (name != null && Json.Str(name) != V2RayConfig.TunName) No("tun name " + (Json.Str(name) ?? name.ToJsonString()));
             }
+            if (appPort != null && inbounds.Count != 1) No("inbounds");
         }
         else No("inbound null");
 

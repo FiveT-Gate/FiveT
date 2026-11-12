@@ -108,6 +108,10 @@ public sealed class VpnSession
     public bool SentCredentials;
     /// <summary>OpenVPN: the kernel driver could not carry this profile once; the TAP driver is used for the retry.</summary>
     public bool ForceTap;
+    /// <summary>Apps-only mode: the local SOCKS port of this run of Xray (no tunnel, no routes); null for a run with a tunnel.</summary>
+    public int? AppProxyPort;
+    /// <summary>Started by a failover (Switch to Another VPN): its first failed try is retried, so the chain can go on.</summary>
+    public bool FailedOver;
     /// <summary>What the VPN said about its tunnel while connecting (address, DNS, all traffic or not).</summary>
     public NetworkInfo PendingNetwork = new();
     /// <summary>The server's addresses, looked up before the tunnel (kill switch), and the PC's own DNS servers from before the tunnel took over.</summary>

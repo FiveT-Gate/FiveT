@@ -257,8 +257,11 @@ public sealed class McpServer
         "server works. The fix is split DNS: add the internal domains to the connection's \"DNS domains\" (Settings → " +
         "Connections); FiveT then installs NRPT rules while connected. Use resolve and check_reachability to diagnose " +
         "\"VPN up but host unreachable\" in one call; they report both the tunnel DNS and the system resolver. get_log " +
-        "returns event lines (info and errors) by default; ask for level \"debug\" for openconnect chatter. Passwords " +
-        "and one-time-code secrets are never exposed.";
+        "returns event lines (info and errors) by default; ask for level \"debug\" for openconnect chatter. " +
+        "get_settings and set_settings read and change the switches (kill switch, failover, Bypass Iranian Websites, apps-only mode and its app list, reconnect, watchdog, notifications); unblock_internet lifts a kill switch block. " +
+        "These protect the user's privacy: change only what they asked for. Lowering protection (kill switch off, apps-only on, Bypass Iranian Websites on, unblock_internet) makes FiveT ask the user in a dialog on this PC; if they decline, nothing changes. " +
+        "In apps-only mode (V2Ray and Outline) the VPN carries just the chosen apps, which the user starts from FiveT's menu (Open with VPN): the rest of the PC is not on the VPN, and get_status shows interface \"app-proxy\". " +
+        "Passwords and one-time-code secrets are never exposed.";
 
     private JsonObject HandleMethod(string method, JsonObject prms, McpClientSession session)
     {
@@ -314,6 +317,9 @@ public static class McpTools
         new("list_connections", "The saved VPN connections: name, gateway, username, one-time-code mode, split-DNS domains, last successful connect time, last error, and each one's state (several can be connected at once). Never includes passwords."),
         new("connect", "Connect to a saved VPN connection by name. Idempotent: if that connection is already up it returns outcome \"already_connected\" with the uptime and does not reconnect. By default waits until the tunnel is up or the attempt failed and returns the resulting status with network facts. Other connections that are already up are left alone: FiveT holds several tunnels at the same time."),
         new("disconnect", "Disconnect one VPN connection by name, leaving the other tunnels up; without a name, disconnect every tunnel. Also stops a reconnect loop. Waits until the tunnel is down and returns the resulting status. Safe to call when nothing is connected."),
+        new("get_settings", "FiveT's switches as they are now: kill_switch, bypass_iranian_websites, failover (switch to the next VPN when one stays down), apps_only (the VPN carries only the apps in vpn_apps, V2Ray and Outline), vpn_apps (full paths of the chosen programs), auto_reconnect, watchdog, notify_on_change."),
+        new("set_settings", "Change the switches get_settings lists: only the ones given. These protect the user's privacy (the kill switch, apps-only), so change only what the user asked for, and say what you changed. vpn_apps replaces the whole list; give the full path of each program's .exe file, such as C:\\Program Files\\Slack\\slack.exe. Passwords, certificate trust, connections and updates are not available here: the user does those in FiveT. Turning protection on needs nothing; lowering it (kill_switch off, apps_only on, bypass_iranian_websites on) makes FiveT ask the user in a dialog on this PC, and nothing changes unless they allow it."),
+        new("unblock_internet", "Lifts the kill switch block that is holding this PC's internet shut because a VPN dropped (the same as Unblock Internet in FiveT's menu). Without a VPN the PC's traffic then goes out unprotected, so use it only when the user asks. FiveT asks the user in a dialog on this PC first, and nothing is lifted unless they allow it."),
         new("get_log", "Recent lines of FiveT's log: connect/disconnect events, authentication, tunnel up, DNS and routes, errors, MCP calls. Default level \"info\" hides openconnect's verbose chatter; packet traces are never stored unless enabled in Settings."),
         new("get_diagnostics", "Full diagnostics text: setup checks (openconnect, driver, administrator rights, login task), app version, status, network facts, connections without secrets, and the recent event log."),
         new("resolve", "Resolve a host name two ways: directly against the tunnel's DNS servers (what nslookup does) and through the system resolver (what curl, Python and apps use). Different answers mean split DNS is needed for that domain."),
@@ -340,6 +346,21 @@ public static class McpTools
                 {
                     ["name"] = Prop("string", "Which connection to disconnect (case-insensitive; the id also works). Leave it out to disconnect every tunnel."),
                 }),
+            Tool("get_settings", d["get_settings"], readOnly: true),
+            Tool("set_settings", d["set_settings"],
+                properties: new JsonObject
+                {
+                    ["kill_switch"] = new JsonObject { ["type"] = "boolean" },
+                    ["bypass_iranian_websites"] = new JsonObject { ["type"] = "boolean" },
+                    ["failover"] = new JsonObject { ["type"] = "boolean" },
+                    ["apps_only"] = new JsonObject { ["type"] = "boolean", ["description"] = "Switching it restarts a V2Ray or Outline tunnel that is up in the other mode." },
+                    ["vpn_apps"] = new JsonObject { ["type"] = "array", ["items"] = new JsonObject { ["type"] = "string" } },
+                    ["auto_reconnect"] = new JsonObject { ["type"] = "boolean" },
+                    ["watchdog"] = new JsonObject { ["type"] = "boolean" },
+                    ["notify_on_change"] = new JsonObject { ["type"] = "boolean" },
+                },
+                destructive: true),
+            Tool("unblock_internet", d["unblock_internet"], destructive: true),
             Tool("get_log", d["get_log"],
                 properties: new JsonObject
                 {
@@ -375,13 +396,13 @@ public static class McpTools
         return o;
     }
 
-    private static JsonObject Tool(string name, string description, JsonObject? properties = null, string[]? required = null, bool readOnly = false)
+    private static JsonObject Tool(string name, string description, JsonObject? properties = null, string[]? required = null, bool readOnly = false, bool destructive = false)
     {
         var schema = new JsonObject { ["type"] = "object", ["properties"] = properties ?? new JsonObject(), ["additionalProperties"] = false };
         if (required is { Length: > 0 }) schema["required"] = Json.Array(required);
         var annotations = readOnly
             ? new JsonObject { ["readOnlyHint"] = true, ["openWorldHint"] = false }
-            : new JsonObject { ["readOnlyHint"] = false, ["destructiveHint"] = false, ["idempotentHint"] = true, ["openWorldHint"] = false };
+            : new JsonObject { ["readOnlyHint"] = false, ["destructiveHint"] = destructive, ["idempotentHint"] = true, ["openWorldHint"] = false };
         return new JsonObject { ["name"] = name, ["description"] = description, ["inputSchema"] = schema, ["annotations"] = annotations };
     }
 
@@ -539,6 +560,71 @@ public static class McpTools
                 return Result(d);
             }
 
+            case "get_settings":
+                return Result(Ui.Invoke(() => SettingsDict()));
+
+            case "set_settings":
+            {
+                List<string>? apps = null;
+                if (args["vpn_apps"] is { } rawApps)
+                {
+                    if (rawApps is not JsonArray list || list.Any(x => Json.Str(x) == null)) throw new RpcException(-32602, "'vpn_apps' must be a list of program paths");
+                    var paths = list.Select(x => Json.Str(x)!).ToList();
+                    foreach (var p in paths.Where(p => !VpnApps.IsAppPath(p) || !File.Exists(p)))
+                        throw new RpcException(-32602, $"'{p}' is not an installed program: give the full path of its .exe file, e.g. C:\\Program Files\\Slack\\slack.exe");
+                    apps = paths;
+                }
+                var values = new List<(string Key, Func<ConnectionStore, bool> Get, Action<ConnectionStore, bool> Set, bool Value)>();
+                foreach (var (key, get, set) in SettingFlags)
+                {
+                    if (args[key] == null) continue;
+                    if (Json.Bool(args[key]) is not { } wanted) throw new RpcException(-32602, $"'{key}' must be true or false");
+                    values.Add((key, get, set, wanted));
+                }
+                if (values.Count == 0 && apps == null) throw new RpcException(-32602, "give at least one setting to change (see get_settings)");
+                // Lowering protection from outside the app (an assistant, the command line) needs the user's yes, asked by FiveT
+                // itself, so a prompt-injected assistant cannot switch it off on its own. Read from the settings as they are now.
+                List<(string Key, string Text)> Lowering()
+                {
+                    var st = ConnectionStore.Shared;
+                    return Protection.Lowering(values.Select(v => (v.Key, v.Get(st), v.Value)));
+                }
+                var asked = Ui.Invoke(Lowering);
+                if (asked.Count > 0 && !UserAllows(string.Join(" and ", asked.Select(a => a.Text))))
+                    return Result(new JsonObject { ["changed"] = new JsonArray(), ["denied"] = true, ["message"] = "The user did not allow this change in FiveT's dialog. Nothing was changed." }, isError: true);
+                // Applied in one step that reads the settings again: a change that lowers protection and was not in what the user
+                // allowed (the setting moved while the dialog was open) is refused, not applied.
+                var outcome = Ui.Invoke<List<string>?>(() =>
+                {
+                    var st = ConnectionStore.Shared;
+                    if (!Lowering().Select(l => l.Key).ToHashSet().IsSubsetOf(asked.Select(a => a.Key))) return null;
+                    var done = new List<string>();
+                    foreach (var (key, get, set, value) in values)
+                        if (get(st) != value) { set(st, value); done.Add(key); }
+                    if (apps != null && !apps.SequenceEqual(st.VpnAppPaths, StringComparer.OrdinalIgnoreCase)) { st.SetVpnAppPaths(apps); done.Add("vpn_apps"); }
+                    return done;
+                });
+                if (outcome == null)
+                    return Result(new JsonObject { ["changed"] = new JsonArray(), ["denied"] = true, ["message"] = "A setting changed while this request was being checked. Nothing was changed: ask again." }, isError: true);
+                Log.Shared.Write($"[mcp] settings changed: {(outcome.Count == 0 ? "nothing (already so)" : string.Join(", ", outcome))}");
+                var settings = Ui.Invoke(() => SettingsDict());
+                settings["changed"] = Json.Array(outcome);
+                return Result(settings);
+            }
+
+            case "unblock_internet":
+            {
+                var was = Ui.Invoke(() => VpnManager.Shared.KillSwitchActive);
+                if (was && !UserAllows("lift the Kill Switch block and let this PC's internet out without the VPN"))
+                    return Result(new JsonObject
+                    {
+                        ["was_blocked"] = true, ["denied"] = true, ["kill_switch_blocking"] = true,
+                        ["message"] = "The user did not allow this in FiveT's dialog. The block stays.",
+                    }, isError: true);
+                Ui.Invoke(() => VpnManager.Shared.ReleaseKillSwitch());
+                return Result(new JsonObject { ["was_blocked"] = was, ["kill_switch_blocking"] = Ui.Invoke(() => VpnManager.Shared.KillSwitchActive) });
+            }
+
             case "get_log":
             {
                 var n = Math.Min(Math.Max(Json.Int(args["lines"]) ?? 60, 1), 1000);
@@ -582,6 +668,44 @@ public static class McpTools
     }
 
     // MARK: helpers
+
+    /// <summary>The on/off switches get_settings and set_settings share: tool name, and how to read and write it.</summary>
+    private static readonly (string Key, Func<ConnectionStore, bool> Get, Action<ConnectionStore, bool> Set)[] SettingFlags =
+    {
+        ("kill_switch", s => s.KillSwitch, (s, v) => s.KillSwitch = v),
+        ("bypass_iranian_websites", s => s.BypassIran, (s, v) => s.BypassIran = v),
+        ("failover", s => s.AutoFailover, (s, v) => s.AutoFailover = v),
+        ("apps_only", s => s.AppsOnly, (s, v) => s.AppsOnly = v),
+        ("auto_reconnect", s => s.AutoReconnect, (s, v) => s.AutoReconnect = v),
+        ("watchdog", s => s.Watchdog, (s, v) => s.Watchdog = v),
+        ("notify_on_change", s => s.NotifyOnChange, (s, v) => s.NotifyOnChange = v),
+    };
+
+    /// <summary>The switches as they are now. UI thread.</summary>
+    private static JsonObject SettingsDict()
+    {
+        var st = ConnectionStore.Shared;
+        var o = new JsonObject();
+        foreach (var (key, get, _) in SettingFlags) o[key] = get(st);
+        o["vpn_apps"] = Json.Array(st.VpnAppPaths);
+        return o;
+    }
+
+    /// <summary>
+    /// Asks the user, in a dialog of FiveT's own on this PC, whether to allow <paramref name="what"/>. The default is Don't Allow:
+    /// nothing is pre-selected, and Allow only works after a moment, like a browser's permission prompt. Each request has its own
+    /// dialog (never one shared with another request's wording). No answer in five minutes is a no.
+    /// </summary>
+    private static bool UserAllows(string what)
+    {
+        var task = Ui.Invoke(() => PromptWindow.Ask("mcp-lowering:" + Guid.NewGuid(), new PromptSpec
+        {
+            Title = "Allow this change?",
+            Message = $"An assistant or the command line asked FiveT to {what}. This lowers the protection FiveT gives you. Allow it only if you asked for it.",
+            Primary = "Allow", Secondary = "Don't Allow", Warning = true, AutomationId = "McpAllow",
+        }));
+        return task.Wait(TimeSpan.FromMinutes(5)) && task.Result.Accepted;
+    }
 
     /// <summary>
     /// One status for the whole manager, as the Mac's VPNManager.status: a tunnel that is changing

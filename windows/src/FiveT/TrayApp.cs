@@ -45,6 +45,7 @@ public sealed class TrayApp
         // Two refused logins in a row: the person who clicked is asked whether to try anyway.
         _vpn.LoginLimitReached += id => Ui.Post(() => LoginLimitPrompt.Present(id));
         _store.KillSwitchChanged += () => Ui.Post(_vpn.KillSwitchSettingChanged);
+        _store.AppsOnlyChanged += () => Ui.Post(_vpn.AppsModeChanged);
         // Both fire on background threads, often several times for one change; VpnManager compares
         // the real networks before it does anything.
         System.Net.NetworkInformation.NetworkChange.NetworkAvailabilityChanged += (_, _) => Ui.Post(_vpn.NetworkChanged);
@@ -58,6 +59,7 @@ public sealed class TrayApp
         Links.Register();
         Links.Listen(HandleLink);
         Updater.Shared.Notify = (title, text, isError) => _icon.ShowBalloon(title, text, isError);
+        Updater.Shared.IsBusy = () => _vpn.IsRunning;
         Updater.Shared.Start();
 
         Log.Shared.Write($"FiveT launched from {Paths.ExeDir}" + (Paths.IsDev ? " (developer mode)" : ""));

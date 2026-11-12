@@ -286,6 +286,22 @@ public sealed partial class TrayFlyout : Window
             foreach (var b in bulk) Items.Children.Add(b);
         }
 
+        // Apps-only mode: the chosen apps are started through the VPN from here (the Mac's "Open with VPN").
+        if (_store.AppsOnly && _store.VpnAppPaths.Count > 0)
+        {
+            Items.Children.Add(Separator());
+            Items.Children.Add(Note("Open with VPN", "FlyoutAppsHeader"));
+            var a = 0;
+            foreach (var path in _store.VpnAppPaths)
+            {
+                var app = path;
+                var row = Row(VpnApps.Name(app), null, () => OpenApp(app), null, $"FlyoutApp{a++}");
+                row.IsEnabled = _vpn.AppProxyReady;
+                ToolTipService.SetToolTip(row, _vpn.AppProxyReady ? app : "Connect a V2Ray or Outline VPN first");
+                Items.Children.Add(row);
+            }
+        }
+
         Items.Children.Add(Separator());
 
         if (_vpn.KillSwitchActive)
@@ -318,6 +334,19 @@ public sealed partial class TrayFlyout : Window
         // Plain lines at the bottom, as the Mac menu has had them since 1.4.1.
         Items.Children.Add(Row("Settings", null, () => _app.ShowSettings(SettingsTab.Connections), null, "FlyoutSettings"));
         Items.Children.Add(Row("Quit", null, _app.Quit, null, "FlyoutQuit"));
+    }
+
+    /// <summary>After the flyout has closed; what went wrong is said in a prompt (the Mac's "Could not open the app through the VPN").</summary>
+    private void OpenApp(string path)
+    {
+        Ui.Post(async () =>
+        {
+            if (_vpn.OpenThroughVpn(path) is not { } problem) return;
+            await PromptWindow.Ask("openapp:" + path, new PromptSpec
+            {
+                Title = "Could not open the app through the VPN", Message = problem, Primary = "OK", Secondary = "Close", AutomationId = "OpenAppProblem",
+            });
+        });
     }
 
     private Button Row(string text, string? trailing, Action onClick, string? dotBrushKey, string automationId)

@@ -7,13 +7,14 @@ using FiveT.Core;
 
 namespace FiveT;
 
-public enum UpdatePhase { Idle, Checking, UpToDate, Available, Downloading, Failed }
+public enum UpdatePhase { Idle, Checking, UpToDate, Available, Downloading, Ready, Failed }
 
 /// <summary>
-/// Self-update. Reads the signed feed (<see cref="UpdateFeed"/>), and once the person agrees downloads the
-/// setup file the feed names, checks its SHA-256, hands it to a small PowerShell helper and quits. The helper
+/// Self-update, like the Mac's: no dialogs. Reads the signed feed (<see cref="UpdateFeed"/>), downloads the
+/// setup file the feed names in the background, checks its SHA-256 and keeps it until no tunnel is in use
+/// (two quiet looks in a row); then hands it to a small PowerShell helper and quits. The helper
 /// waits for this process to end (setup refuses to run while FiveT.exe holds its mutex), runs the setup
-/// silently and starts FiveT again.
+/// silently and starts FiveT again. "Install and Restart" in Settings skips the wait.
 ///
 /// FiveT runs as administrator, so it never runs a file an ordinary program could have swapped: the setup is
 /// downloaded into <c>updates\</c> inside the install folder, and only when that folder passes
@@ -24,7 +25,7 @@ public sealed class Updater
     public static Updater Shared { get; } = new();
 
     private const long MaxBytes = 400L * 1024 * 1024;   // the setup files are about 60 MB
-    private static readonly TimeSpan CheckEvery = TimeSpan.FromHours(24), RetryAfter = TimeSpan.FromHours(5);
+    private static readonly TimeSpan CheckEvery = TimeSpan.FromHours(24), RetryAfter = TimeSpan.FromHours(5), QuietEvery = TimeSpan.FromMinutes(3);
 
     private readonly HttpClient _http = new(new SocketsHttpHandler { UseCookies = false, MaxAutomaticRedirections = 5 })
     {
@@ -43,7 +44,13 @@ public sealed class Updater
     /// <summary>Set by the tray app: shows a notification-area balloon.</summary>
     public Action<string, string, bool>? Notify { get; set; }
 
+    /// <summary>Set by the tray app: true while a restart would get in someone's way (a tunnel is up or starting).</summary>
+    public Func<bool> IsBusy { get; set; } = () => false;
+
     private string _askedVersion = "";
+    private string? _staged;     // the verified setup file, waiting for a quiet moment
+    private int _quietTicks;
+    private UiTimer? _timer;     // held so it cannot be collected while it waits
 
     private Updater()
     {
@@ -76,7 +83,7 @@ public sealed class Updater
     {
         if (Paths.IsDev) return;
         try { if (Directory.Exists(UpdatesDir)) Directory.Delete(UpdatesDir, true); } catch { }   // a setup left by an update that did not finish
-        Ui.After(60, () => AutoCheck());
+        _timer = Ui.After(60, () => AutoCheck());
     }
 
     private async void AutoCheck()
@@ -88,22 +95,41 @@ public sealed class Updater
             {
                 await CheckAsync();
                 if (Phase == UpdatePhase.Failed) next = RetryAfter;
-                else if (Phase == UpdatePhase.Available && Release is { } r && _askedVersion != r.Version)
+                else if (Phase == UpdatePhase.Available && Release is { } r)
                 {
-                    _askedVersion = r.Version;   // once per version and start
-                    Ask(r);
+                    if (CanInstall) { if (!await DownloadAsync(r, userAsked: false)) next = RetryAfter; }
+                    else if (_askedVersion != r.Version)
+                    {
+                        _askedVersion = r.Version;   // once per version and start
+                        Notify?.Invoke("FiveT update", $"FiveT {r.Version} is available. This copy cannot update itself: install the new setup from FiveT's GitHub releases page.", false);
+                    }
                 }
             }
         }
         catch (Exception e) { Log.Shared.Write($"update check failed: {e.Message}", LogLevel.Error); }
-        Ui.After(next.TotalSeconds, () => AutoCheck());
+        _timer = Ui.After(next.TotalSeconds, () => AutoCheck());
+    }
+
+    /// <summary>A downloaded update looks for a quiet moment every 3 minutes; two in a row (3 to 6 minutes), so a
+    /// restart never lands between a disconnect and the next connect.</summary>
+    private void QuietTick()
+    {
+        if (Phase != UpdatePhase.Ready) return;
+        _quietTicks = ConnectionStore.Shared.AutoUpdateCheck && !IsBusy() ? _quietTicks + 1 : 0;
+        if (_quietTicks >= 2)
+        {
+            Log.Shared.Write("no tunnel in use; installing the update");
+            Install();
+            return;
+        }
+        _timer = Ui.After(QuietEvery.TotalSeconds, QuietTick);
     }
 
     // MARK: Check
 
     public async Task CheckAsync()
     {
-        if (Phase is UpdatePhase.Checking or UpdatePhase.Downloading) return;
+        if (Phase is UpdatePhase.Checking or UpdatePhase.Downloading or UpdatePhase.Ready) return;
         Set(UpdatePhase.Checking);
         try
         {
@@ -138,34 +164,18 @@ public sealed class Updater
 
     // MARK: Install
 
-    private async void Ask(UpdateRelease rel)
-    {
-        try
-        {
-            if (!CanInstall)
-            {
-                Notify?.Invoke("FiveT update", $"FiveT {rel.Version} is available. This copy cannot update itself: install the new setup from FiveT's GitHub releases page.", false);
-                return;
-            }
-            var notes = rel.Notes is { Length: > 0 } n ? (n.Length > 600 ? n[..600] + "…" : n) : null;
-            var r = await PromptWindow.Ask("update:" + rel.Version, new PromptSpec
-            {
-                Title = $"FiveT {rel.Version} is available",
-                Message = $"You have {Paths.AppVersion}. Install the new version now? FiveT restarts, and every open connection is disconnected.",
-                Detail = notes,
-                Primary = "Install and Restart",
-                Secondary = "Later",
-                AutomationId = "UpdatePrompt",
-            });
-            if (r.Accepted) await InstallAsync();
-        }
-        catch (Exception e) { Log.Shared.Write($"update prompt failed: {e.Message}", LogLevel.Error); }
-    }
-
-    /// <summary>Downloads, verifies and starts the installer; on success FiveT quits and comes back as the new version.</summary>
+    /// <summary>"Install and Restart" in Settings: downloads first when that has not happened yet, then installs now.</summary>
     public async Task<bool> InstallAsync()
     {
-        if (Phase != UpdatePhase.Available || Release is not { } rel || !CanInstall) return false;
+        if (Phase == UpdatePhase.Available && Release is { } rel && CanInstall && !await DownloadAsync(rel, userAsked: true)) return false;
+        if (Phase != UpdatePhase.Ready) return false;
+        return Install();
+    }
+
+    /// <summary>Downloads and verifies the setup file, then waits for a quiet moment. The background run only logs a failure.</summary>
+    private async Task<bool> DownloadAsync(UpdateRelease rel, bool userAsked)
+    {
+        if (!CanInstall) return false;
         Set(UpdatePhase.Downloading);
         string? file = null;
         try
@@ -192,9 +202,11 @@ public sealed class Updater
                 if (!Convert.ToHexString(hash.GetHashAndReset()).Equals(rel.Sha256, StringComparison.OrdinalIgnoreCase))
                     throw new InvalidDataException("The download does not match the checksum in the signed feed.");
             }
-            Launch(file);
-            Log.Shared.Write($"installing FiveT {rel.Version}: FiveT quits and setup restarts it");
-            Ui.Post(() => TrayApp.Current?.Quit());
+            _staged = file;
+            Log.Shared.Write($"update {rel.Version} downloaded and verified");
+            Set(UpdatePhase.Ready);
+            _quietTicks = 0;
+            _timer = Ui.After(QuietEvery.TotalSeconds, QuietTick);
             return true;
         }
         catch (Exception e)
@@ -203,11 +215,28 @@ public sealed class Updater
             if (file != null) try { File.Delete(file); } catch { }
             var msg = e is InvalidDataException ? e.Message : "The update could not be downloaded.";
             Fail(msg);
-            Notify?.Invoke("FiveT update failed", msg, true);
+            if (userAsked) Notify?.Invoke("FiveT update failed", msg, true);
             return false;
         }
     }
 
+    /// <summary>Starts the installer; FiveT quits and comes back as the new version.</summary>
+    private bool Install()
+    {
+        try
+        {
+            Launch(_staged!);
+            Log.Shared.Write($"installing FiveT {Release?.Version}: FiveT quits and setup restarts it");
+            Ui.Post(() => TrayApp.Current?.Quit());
+            return true;
+        }
+        catch (Exception e)
+        {
+            Log.Shared.Write($"could not start the update: {e.Message}", LogLevel.Error);
+            Fail("The update could not be started.");
+            return false;
+        }
+    }
     /// <summary>
     /// A hidden PowerShell waits for this process to exit, runs the setup silently (it replaces the files
     /// and keeps the login task), deletes it and starts FiveT again, through the login task when there is one.

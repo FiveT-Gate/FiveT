@@ -58,14 +58,15 @@ public sealed partial class GeneralPage : Page, IDetachable
         {
             UpdatePhase.Checking => "Checking…",
             UpdatePhase.Downloading => "Downloading FiveT " + u.Release?.Version + "…",
-            UpdatePhase.Available when Updater.CanInstall => $"FiveT {u.Release?.Version} is available (you have {Paths.AppVersion}). FiveT restarts to install it.",
+            UpdatePhase.Available when Updater.CanInstall => $"FiveT {u.Release?.Version} is available (you have {Paths.AppVersion}). Installing restarts FiveT and briefly disconnects the VPN.",
+            UpdatePhase.Ready => $"FiveT {u.Release?.Version} is ready to install. " + (_store.AutoUpdateCheck ? "It installs by itself when no VPN is connected." : "Installing restarts FiveT and briefly disconnects the VPN."),
             UpdatePhase.Available => $"FiveT {u.Release?.Version} is available (you have {Paths.AppVersion}). This copy cannot update itself: install the new setup from FiveT's GitHub releases page.",
             UpdatePhase.UpToDate => $"FiveT {Paths.AppVersion} is up to date" + (u.LastChecked is { } t ? $" (checked {t:HH:mm})." : "."),
             UpdatePhase.Failed => u.Problem ?? "The update check failed.",
             _ => $"FiveT {Paths.AppVersion}. Not checked yet.",
         };
-        CheckUpdateButton.IsEnabled = !busy;
-        InstallUpdateButton.Visibility = u.Phase == UpdatePhase.Available && Updater.CanInstall ? Visibility.Visible : Visibility.Collapsed;
+        CheckUpdateButton.IsEnabled = !busy && u.Phase != UpdatePhase.Ready;
+        InstallUpdateButton.Visibility = u.Phase is UpdatePhase.Available or UpdatePhase.Ready && Updater.CanInstall ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private async void CheckUpdate_Click(object sender, RoutedEventArgs e) => await Updater.Shared.CheckAsync();
@@ -87,11 +88,49 @@ public sealed partial class GeneralPage : Page, IDetachable
         WatchdogSwitch.IsOn = _store.Watchdog;
         UpdateSwitch.IsOn = _store.AutoUpdateCheck;
         KillSwitchSwitch.IsOn = _store.KillSwitch;
+        AppsOnlySwitch.IsOn = _store.AppsOnly;
+        FailoverSwitch.IsOn = _store.AutoFailover;
         BypassIranSwitch.IsOn = _store.BypassIran;
         VerboseSwitch.IsOn = _store.VerboseLogging;
         PacketsSwitch.IsOn = _store.VerbosePackets;
         PacketsCard.IsEnabled = VerboseSwitch.IsOn;
         _loading = false;
+        ShowApps();
+    }
+
+    // MARK: Apps only (the Mac's "Use the VPN for Chosen Apps Only")
+
+    private void ShowApps()
+    {
+        AppsPanel.Visibility = _store.AppsOnly ? Visibility.Visible : Visibility.Collapsed;
+        AppsList.Children.Clear();
+        foreach (var path in _store.VpnAppPaths)
+        {
+            var p = path;
+            var remove = new Button { Content = "Remove" };
+            AutomationProperties.SetAutomationId(remove, "RemoveApp");
+            remove.Click += (_, _) => { _store.SetVpnAppPaths(_store.VpnAppPaths.Where(x => !string.Equals(x, p, StringComparison.OrdinalIgnoreCase))); ShowApps(); };
+            AppsList.Children.Add(new CommunityToolkit.WinUI.Controls.SettingsCard { Header = VpnApps.Name(p), Description = p, Content = remove, Margin = new Thickness(32, 0, 0, 0) });
+        }
+    }
+
+    private void AppsOnlySwitch_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (_loading) return;
+        _store.AppsOnly = AppsOnlySwitch.IsOn;   // a V2Ray or Outline tunnel that is up starts again in the other mode
+        ShowApps();
+    }
+
+    private void FailoverSwitch_Toggled(object sender, RoutedEventArgs e) { if (!_loading) _store.AutoFailover = FailoverSwitch.IsOn; }
+
+    private void AddApp_Click(object sender, RoutedEventArgs e)
+    {
+        var file = NativeUi.OpenFile(WindowHandle, "Choose an app to use the VPN", "Programs|*.exe|All files|*.*");
+        if (file == null) return;
+        if (!VpnApps.IsAppPath(file)) { ShowMessage("Choose the program's .exe file, on a drive or a network share.", InfoBarSeverity.Warning); return; }
+        _store.SetVpnAppPaths(_store.VpnAppPaths.Append(file));
+        ShowMessage("");
+        ShowApps();
     }
 
     // MARK: Setup
