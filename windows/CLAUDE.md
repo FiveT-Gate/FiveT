@@ -255,6 +255,24 @@ FiveT again). Do not undo:
   install folder). A developer or per-user copy only reports the update. `FIVET_UPDATE_URL` is read in developer mode only.
 - Download URLs must start with `UpdateFeed.UrlPrefix`; the user is asked before anything is downloaded.
 
+## Backup (.fivet): things not to undo
+
+Settings → General → Backup is the Mac's Export Settings… / Import Settings…. The code is `ConnectionStore.ExportText()` and
+`Restore()`, `Backup.cs` (merge rule and the Mac's date, unit-tested) and `NativeUi.SaveFile` (classic dialog: the UWP pickers
+refuse to run elevated). Do not undo:
+
+- **The file is the Mac's `connections.json` layout with plain secrets** (`password`, not `passwordProtected`): DPAPI text opens
+  only for the same account on the same PC. `ConnectionJson(c, export)` builds both forms, so a new connection field is added once.
+- **`lastConnectedAt` is written as the Mac's number** (seconds since 2001-01-01 UTC), because the Mac's decoder drops a whole
+  connection whose date is text. `Load` reads both forms.
+- **Import follows the Mac:** settings replace, connections are added, same id replaces in place. Only settings that mean the same
+  travel (not the Mac's `showNameInMenuBar` / `autoUpdate`, not `openconnectPath`, `welcomeShown`, `autoUpdateCheck`). A setting the
+  file lacks stays. A file with no `connections` array is refused, changing nothing.
+- **A copy of `connections.json` is made first** (`.before-import`); if it cannot be made, nothing is imported.
+- `ReadConnections` is shared by `Load` and `Restore`: change the reading of a connection there once.
+- Verified with a throwaway harness that compiled `ConnectionStore.cs` in `FIVET_DEV=1` mode (export, import, round trip, a Mac-style
+  file, refused files); the file dialogs and the Settings buttons are not covered by automated tests.
+
 ## Known unverified points
 
 - **Two tunnels against real gateways.** The session machinery is verified: two connections start

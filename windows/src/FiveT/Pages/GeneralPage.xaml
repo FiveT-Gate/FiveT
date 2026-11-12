@@ -89,6 +89,17 @@
                 <ToggleSwitch x:Name="BypassIranSwitch" Toggled="BypassIranSwitch_Toggled" AutomationProperties.AutomationId="BypassIranSwitch" />
             </tk:SettingsCard>
 
+            <TextBlock Text="Backup" Style="{StaticResource SettingsGroupHeaderStyle}" />
+            <tk:SettingsCard Header="Export and import settings" Description="A .fivet file holds all connections and settings, with their passwords and one-time-code secrets in plain text, so keep it private. Import it on another PC or on a Mac to copy them.">
+                <tk:SettingsCard.HeaderIcon>
+                    <FontIcon Glyph="&#xE8B5;" />
+                </tk:SettingsCard.HeaderIcon>
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button Content="Export Settings…" Click="ExportSettings_Click" AutomationProperties.AutomationId="ExportSettings" />
+                    <Button Content="Import Settings…" Click="ImportSettings_Click" AutomationProperties.AutomationId="ImportSettings" />
+                </StackPanel>
+            </tk:SettingsCard>
+
             <TextBlock Text="Troubleshooting" Style="{StaticResource SettingsGroupHeaderStyle}" />
             <tk:SettingsCard Header="Diagnostics" Description="Setup checks and the recent log, for whoever helps you. Never your passwords.">
                 <tk:SettingsCard.HeaderIcon>

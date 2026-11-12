@@ -303,6 +303,23 @@ Only the first of several gateways joined by `;` is used. IPsec profiles are lis
 ticked (openconnect's FortiGate mode is SSL-VPN). A profile FiveT already has (same host, port, realm
 and user) is shown but not ticked; a new one whose name is taken gets " (FortiClient)" added.
 
+## Backup: export and import settings
+
+Settings → General → **Backup** has **Export Settings…** and **Import Settings…**, the Mac's two buttons. Export writes a
+`.fivet` file with every connection and the settings; import reads one, from this PC, another PC or a Mac. The file has the
+layout of the Mac's `connections.json`, so it opens on both.
+
+- **The secrets are in the file in plain text** (passwords, one-time-code secrets, OpenVPN profiles, V2Ray links). The copy
+  in `connections.json` is DPAPI-encrypted and only opens for the same Windows account on the same PC, which is no use in a
+  backup. Keep the file private. FiveT limits it to your Windows account where the drive allows (a USB stick with FAT cannot)
+  and says so when it cannot.
+- **Import adds and replaces.** A connection with the id of a saved one replaces it where it stands; the others are added. The
+  settings in the file replace this PC's; a setting the file does not hold stays. What was saved before is kept once as
+  `connections.json.before-import` (it is encrypted like `connections.json`). A file that is not a FiveT file is refused and
+  changes nothing.
+- **Only settings that mean the same on both apps travel.** The Mac's menu-bar name and automatic install, and this app's
+  openconnect.exe path and update check, are left alone.
+
 ## AI assistants (MCP)
 
 FiveT is also an **MCP server** (Model Context Protocol), so an AI assistant such as Claude Desktop,
@@ -394,7 +411,7 @@ Values are never written to the log or the diagnostics, only the option names.
 
 The **General** tab has the setup status (*Set Up FiveT* / *Add Your VPN…*, and Requirements),
 "Start FiveT at login" (the login task), auto-reconnect, notifications, the fivet:// question,
-Copy Diagnostics and the log switches.
+Backup (export and import settings), Copy Diagnostics and the log switches.
 
 ## Files
 
@@ -402,6 +419,8 @@ Copy Diagnostics and the log switches.
 |------|-------|
 | Connections and settings | `%LOCALAPPDATA%\FiveT\connections.json` (passwords DPAPI-encrypted) |
 | Log | `%LOCALAPPDATA%\FiveT\Logs\fivet.log` (moved to `fivet.log.1` at 5 MB, one line per entry) |
+| A `.fivet` backup | wherever you save it (Settings → General → Backup); passwords and secrets in plain text |
+| Your connections before an import | `connections.json.before-import` next to `connections.json` |
 | A `connections.json` FiveT could not read | kept as `connections.json.bad-<date-time>` next to it; FiveT will not save over the original until that copy exists, and says so on Settings → General |
 | Login task | Task Scheduler → `FiveT` |
 | Split-DNS rules (while connected) | NRPT rules with comment `FiveT` (`Get-DnsClientNrptRule`) |
@@ -521,7 +540,7 @@ and paste it. Files cannot be dragged onto FiveT (it runs elevated): use + → F
 **Build.** `.\build.ps1 -Installer` → `release\FiveT-Setup-<ver>.exe` (x64) and `-arm64.exe`. The engines are
 fetched once by `Tools\fetch-engines.ps1` into `engines\` (git-ignored), each checked against a pinned
 SHA-256; OpenVPN comes from the OpenVPN project's CI build of the 2.6.23 release commit (needs `gh`). Tests:
-`dotnet test tests\FiveT.Tests` (72 checks). Windows 10 1809 or later, x64 or ARM64, administrator rights at
+`dotnet test tests\FiveT.Tests` (77 checks). Windows 10 1809 or later, x64 or ARM64, administrator rights at
 install; nothing else to install. The setup files are **not code-signed** (Windows SmartScreen will warn).
 
 **Measured on this ARM64 laptop** (launch = start to "FiveT launched" in the log, 3 runs; memory = private

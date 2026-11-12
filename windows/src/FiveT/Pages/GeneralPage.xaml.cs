@@ -297,6 +297,58 @@ public sealed partial class GeneralPage : Page, IDetachable
         PacketsCard.IsEnabled = VerboseSwitch.IsOn;
     }
 
+    // MARK: Backup (the Mac's Export Settings… and Import Settings…)
+
+    private IntPtr WindowHandle => XamlRoot?.ContentIslandEnvironment is { } env ? Microsoft.UI.Win32Interop.GetWindowFromWindowId(env.AppWindowId) : IntPtr.Zero;
+
+    private void ExportSettings_Click(object sender, RoutedEventArgs e)
+    {
+        var file = NativeUi.SaveFile(WindowHandle, "Export FiveT settings", "FiveT settings|*.fivet|All files|*.*", "FiveT.fivet", "fivet");
+        if (file == null) return;
+        try
+        {
+            SafeFile.Replace(file, _store.ExportText());
+            var message = $"Saved {Path.GetFileName(file)}. It holds your passwords and one-time-code secrets in plain text: keep it private.";
+            if (!KeepPrivate(file)) message += " Windows could not limit who can open it on that drive.";
+            if (_store.UnreadableSecretCount > 0) message += $" {_store.UnreadableSecretCount} saved secret(s) could not be read on this PC and are not in the file.";
+            ShowMessage(message, InfoBarSeverity.Success);
+        }
+        catch (Exception ex) { ShowMessage("Could not save the file: " + ex.Message, InfoBarSeverity.Error); }
+    }
+
+    private void ImportSettings_Click(object sender, RoutedEventArgs e)
+    {
+        var file = NativeUi.OpenFile(WindowHandle, "Choose a .fivet file exported from FiveT", "FiveT settings|*.fivet;*.json|All files|*.*");
+        if (file == null) return;
+        try
+        {
+            if (new FileInfo(file).Length > 20 * 1024 * 1024) throw new InvalidDataException("This is not a FiveT settings file (it is far too large).");
+            var result = _store.Restore(File.ReadAllText(file));
+            Reload();
+            ShowMessage(result, InfoBarSeverity.Success);
+        }
+        catch (Exception ex) { ShowMessage(ex.Message, InfoBarSeverity.Error); }
+    }
+
+    /// <summary>Only this Windows account may open the file (the Mac's mode 0600). False when the drive cannot hold permissions.</summary>
+    private static bool KeepPrivate(string path)
+    {
+        try
+        {
+            var acl = new System.Security.AccessControl.FileSecurity();
+            acl.SetAccessRuleProtection(true, false);
+            acl.AddAccessRule(new System.Security.AccessControl.FileSystemAccessRule(
+                System.Security.Principal.WindowsIdentity.GetCurrent().User!,
+                System.Security.AccessControl.FileSystemRights.FullControl, System.Security.AccessControl.AccessControlType.Allow));
+            new FileInfo(path).SetAccessControl(acl);
+            return true;
+        }
+        catch (Exception e) when (e is UnauthorizedAccessException or NotSupportedException or IOException or InvalidOperationException or PlatformNotSupportedException)
+        {
+            return false;
+        }
+    }
+
     // MARK: Troubleshooting
 
     private void OpenLog_Click(object sender, RoutedEventArgs e)
