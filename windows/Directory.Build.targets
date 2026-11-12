@@ -1,0 +1,41 @@
+<Project>
+
+  <!--
+    FiveT is a tray VPN client: an English-only window with a NavigationView, a handful of
+    SettingsCards and text boxes. A self-contained WinUI 3 publish nevertheless ships the whole
+    Windows App SDK payload — framework strings for 89 languages, the Windows AI runtime
+    (onnxruntime + DirectML), Widgets, Search and WebView2 — which was 60% of a 222 MB folder and
+    none of which the app ever loads. Leave those out of the publish.
+
+    Publish with -p:FiveTFullPayload=true to get everything back (to rule this out when a fault
+    appears that was not there before).
+  -->
+  <Target Name="FiveTPrunePublish"
+          AfterTargets="ComputeResolvedFilesToPublishList"
+          Condition="'$(FiveTFullPayload)' != 'true'">
+    <ItemGroup>
+      <!-- Framework UI strings for languages FiveT is not translated into. WinUI falls back to the
+           neutral resources compiled into Microsoft.ui.xaml.dll, so en-us is the only one kept. -->
+      <_FiveTDrop Include="@(ResolvedFileToPublish)"
+                  Condition="'%(Extension)' == '.mui' AND !$([System.String]::Copy('%(RelativePath)').StartsWith('en-us'))" />
+
+      <!-- Windows AI: the ONNX runtime and DirectML plus their projections. No AI API is called. -->
+      <_FiveTDrop Include="@(ResolvedFileToPublish)"
+                  Condition="'%(Filename)' == 'onnxruntime' OR '%(Filename)' == 'DirectML' OR $([System.String]::Copy('%(Filename)').StartsWith('Microsoft.Windows.AI'))" />
+
+      <!-- Windows App SDK features the app has no control for. -->
+      <_FiveTDrop Include="@(ResolvedFileToPublish)"
+                  Condition="$([System.String]::Copy('%(Filename)').StartsWith('Microsoft.Windows.Widgets')) OR $([System.String]::Copy('%(Filename)').StartsWith('Microsoft.Windows.Search')) OR $([System.String]::Copy('%(Filename)').StartsWith('Microsoft.Web.WebView2'))" />
+
+      <!-- Managed-debugger and crash-dump support: only a debugger or createdump.exe loads these.
+           FiveT records its own faults in %LOCALAPPDATA%\FiveT\Logs\fivet.log. -->
+      <_FiveTDrop Include="@(ResolvedFileToPublish)"
+                  Condition="$([System.String]::Copy('%(Filename)').StartsWith('mscordaccore')) OR '%(Filename)' == 'mscordbi' OR '%(Filename)' == 'createdump' OR $([System.String]::Copy('%(Filename)').StartsWith('Microsoft.DiaSymReader'))" />
+
+      <ResolvedFileToPublish Remove="@(_FiveTDrop)" />
+    </ItemGroup>
+    <Message Importance="high"
+             Text="FiveT: left @(_FiveTDrop->Count()) unused framework files out of the publish (other languages, Windows AI, Widgets, Search, WebView2, debugger support)." />
+  </Target>
+
+</Project>

@@ -1,0 +1,75 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <!-- WinUI 3 (Windows App SDK). Unpackaged on purpose: the app is installed by copying a folder,
+         runs elevated and has no package identity, so no MSIX, no Developer Mode needed. -->
+    <TargetFramework>net8.0-windows10.0.26100.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <RootNamespace>FiveT</RootNamespace>
+    <AssemblyName>FiveT</AssemblyName>
+    <ApplicationIcon>Resources\AppIcon.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Platforms>x64</Platforms>
+    <Platform>x64</Platform>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <UseWinUI>true</UseWinUI>
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <SelfContained>true</SelfContained>
+    <EnableMsixTooling>false</EnableMsixTooling>
+    <WinUISDKReferences>false</WinUISDKReferences>
+    <EnableWinAppRunSupport>false</EnableWinAppRunSupport>
+    <!-- Program.cs has its own Main (single instance, elevation, FIVET_DEV). -->
+    <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
+    <PublishReadyToRun>false</PublishReadyToRun>
+    <PublishTrimmed>false</PublishTrimmed>
+  </PropertyGroup>
+  <!--
+    Seeded credentials. LocalSeeds.cs (git-ignored) holds real passwords and TOTP secrets that Connection.Seeds()
+    compiles straight into FiveT.dll, so a build made to be shared must not contain it. With
+    -p:Distribution=true (build.ps1 -Installer does that) LocalSeeds.cs is left out and LocalSeedsEmpty.cs, which
+    seeds nothing, takes its place. The same stand-in is used when LocalSeeds.cs does not exist, so a fresh clone builds.
+    Exactly one of the two files is ever compiled: both define the same class.
+  -->
+  <ItemGroup Condition="'$(Distribution)' == 'true' Or !Exists('$(MSBuildProjectDirectory)\LocalSeeds.cs')">
+    <Compile Remove="LocalSeeds.cs" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(Distribution)' != 'true' And Exists('$(MSBuildProjectDirectory)\LocalSeeds.cs')">
+    <Compile Remove="LocalSeedsEmpty.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\FiveT.Core\FiveT.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.4.0" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2705" />
+    <PackageReference Include="CommunityToolkit.WinUI.Controls.SettingsControls" Version="8.2.250402" />
+    <!-- Draws the notification-area shield icon (bitmaps → HICON). -->
+    <PackageReference Include="System.Drawing.Common" Version="8.0.10" />
+    <!-- Reads Windows' root program list (authroot.stl, a signed CTL) for the gateway certificate check. -->
+    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="8.0.2" />
+    <!-- Reads the one-time-code QR code from a screenshot or an image (Settings → Connections). -->
+    <PackageReference Include="ZXing.Net" Version="0.16.11" />
+  </ItemGroup>
+  <ItemGroup>
+    <Manifest Include="$(ApplicationManifest)" />
+    <Content Include="Resources\AppIcon.ico" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <!--
+    `dotnet publish` leaves out this app's own resource index (FiveT.pri) and its compiled XAML (*.xbf)
+    for an unpackaged WinUI app, although `dotnet build` writes both next to the exe. Without them every
+    Application.LoadComponent fails at run time with a bare "XAML parsing failed", so the published copy
+    starts, shows nothing and quietly logs a XamlParseException while the same code run from bin\ works.
+    Publish exactly what the build produced.
+  -->
+  <Target Name="PublishWinUIResources" BeforeTargets="ComputeResolvedFilesToPublishList">
+    <ItemGroup>
+      <_FiveTXamlResource Include="$(OutDir)$(AssemblyName).pri" Condition="Exists('$(OutDir)$(AssemblyName).pri')" />
+      <_FiveTXamlResource Include="$(OutDir)**\*.xbf" />
+      <ResolvedFileToPublish Include="@(_FiveTXamlResource)">
+        <RelativePath>%(RecursiveDir)%(Filename)%(Extension)</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+  </Target>
+</Project>

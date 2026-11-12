@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="FiveT.Pages.AssistantsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:tk="using:CommunityToolkit.WinUI.Controls"
+    NavigationCacheMode="Required"
+    Loaded="Page_Loaded"
+    Unloaded="Page_Unloaded">
+
+    <ScrollViewer>
+        <StackPanel Padding="24,8,24,24" MaxWidth="1000" HorizontalAlignment="Stretch" Spacing="4">
+            <TextBlock Text="MCP" Style="{StaticResource TitleTextBlockStyle}" Margin="0,0,0,8" />
+
+            <TextBlock Text="Model Context Protocol (MCP)" Style="{StaticResource SettingsGroupHeaderStyle}" Margin="1,8,0,6" />
+            <tk:SettingsCard x:Name="EnabledCard" Header="Let AI assistants control FiveT">
+                <tk:SettingsCard.HeaderIcon>
+                    <FontIcon Glyph="&#xE99A;" />
+                </tk:SettingsCard.HeaderIcon>
+                <ToggleSwitch x:Name="EnabledSwitch" Toggled="EnabledSwitch_Toggled" AutomationProperties.AutomationId="McpSwitch" />
+            </tk:SettingsCard>
+            <TextBlock Style="{StaticResource SettingsCaptionStyle}"
+                       Text="An assistant can list the connections, read the status, network facts and log, connect and disconnect, and diagnose DNS/reachability. It never sees passwords or one-time-code secrets, and only programs running under your Windows account can reach it." />
+
+            <TextBlock Text="Connect an assistant" Style="{StaticResource SettingsGroupHeaderStyle}" />
+            <TextBlock Style="{StaticResource SettingsCaptionStyle}" Margin="1,0,0,8"
+                       Text="Each button adds FiveT to that assistant's MCP server list. The assistant starts FiveT by itself when needed." />
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Content="Add to Claude Desktop" Click="AddClaudeDesktop_Click" AutomationProperties.AutomationId="AddClaudeDesktop" />
+                <Button Content="Add to Claude Code" Click="AddClaudeCode_Click" AutomationProperties.AutomationId="AddClaudeCode" />
+                <Button Content="Add to Cursor" Click="AddCursor_Click" AutomationProperties.AutomationId="AddCursor" />
+                <Button Content="Copy JSON" Click="CopyJson_Click" AutomationProperties.AutomationId="CopyJson" />
+            </StackPanel>
+            <InfoBar x:Name="Message" IsClosable="True" Severity="Informational" Margin="0,4,0,0" AutomationProperties.AutomationId="AssistantsMessage" />
+            <TextBlock Style="{StaticResource SettingsCaptionStyle}" Text="For any other MCP client, use this command:" />
+            <TextBox x:Name="CommandBox" IsReadOnly="True" FontFamily="Consolas" Margin="0,4,0,0" AutomationProperties.AutomationId="McpCommand" />
+            <TextBlock Style="{StaticResource SettingsCaptionStyle}"
+                       Text="Shell scripts can use the same program without JSON-RPC:  fivetctl status | list | connect &lt;name&gt; | disconnect | log | resolve &lt;host&gt; | check &lt;host&gt; [port]   (add --json for machine output; --help for details)" />
+
+            <TextBlock Text="Tools an assistant gets" Style="{StaticResource SettingsGroupHeaderStyle}" />
+            <StackPanel x:Name="Tools" Spacing="2" />
+        </StackPanel>
+    </ScrollViewer>
+</Page>

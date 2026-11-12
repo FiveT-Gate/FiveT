@@ -1,0 +1,13 @@
+bin/
+obj/
+dist/
+*.user
+*.suo
+.vs/
+# real VPN credentials for the developer's own build (build.ps1 recreates an empty file)
+src/FiveT/LocalSeeds.cs
+release/
+tests/**/bin/
+tests/**/obj/
+engines/
+dist-*/
