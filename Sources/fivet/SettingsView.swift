@@ -1069,6 +1069,15 @@ struct GeneralTab: View {
     private static let fivetType = UTType(filenameExtension: "fivet") ?? .json
 
     /// Writes every connection and setting to a .fivet file the user picks.
+    private func addVPNApp() {
+        let panel = NSOpenPanel()
+        panel.directoryURL = URL(fileURLWithPath: "/Applications")
+        panel.allowedContentTypes = [.applicationBundle]
+        panel.message = "Choose an app to use the VPN."
+        guard panel.runModal() == .OK, let url = panel.url, !store.vpnApps.contains(url.path) else { return }
+        store.vpnApps.append(url.path)
+    }
+
     private func exportSettings() {
         let panel = NSSavePanel()
         panel.message = "The file holds your connections with their passwords and one-time-code secrets. Keep it private."
@@ -1124,6 +1133,20 @@ struct GeneralTab: View {
                     .onChange(of: store.killSwitch) { _ in VPNManager.shared.killSwitchChanged() }
                 Text("Blocks internet access if the VPN drops.")
                     .font(.caption).foregroundStyle(.secondary)
+                Toggle("Use the VPN for Chosen Apps Only", isOn: $store.appsOnly)
+                    .onChange(of: store.appsOnly) { _ in VPNManager.shared.appsModeChanged() }
+                Text("For V2Ray and Outline. Only the apps below use the VPN, and the rest of the Mac stays as it is. Start them from FiveT's menu (Open with VPN). While the VPN is down they have no internet at all. Works for apps built on Chrome (Claude, Chrome, Slack, VS Code…), not for Safari or most native apps.")
+                    .font(.caption).foregroundStyle(.secondary)
+                if store.appsOnly {
+                    ForEach(store.vpnApps, id: \.self) { path in
+                        HStack {
+                            Text(URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent)
+                            Spacer()
+                            Button("Remove") { store.vpnApps.removeAll { $0 == path } }
+                        }
+                    }
+                    Button("Add App…") { addVPNApp() }
+                }
                 Toggle("Switch to Another VPN if One Stops Working", isOn: $store.autoFailover)
                 Text("If a VPN stays down after a few tries, FiveT connects the next VPN in your list, and keeps going round the list until one works.")
                     .font(.caption).foregroundStyle(.secondary)

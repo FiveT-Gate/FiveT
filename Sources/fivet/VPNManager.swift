@@ -137,6 +137,8 @@ private final class TunnelSession {
     var waitTimer: Timer?
     var reconnectTimer: Timer?
     var reconnectAttempt = 0
+    var userRun = false               // its program runs as the user, not through the root helper (apps-only Xray)
+    var appProxyPort: Int?            // apps-only mode: the local SOCKS port of this run
     var failedOver = false            // started by a failover: its first failed try is retried, so the chain can go on
     var waitingForNetwork = false     // a reconnect is due, but the Mac has no network: retry when it is back
     var lastNetworkLaunch: Date?      // the last reconnect a network change started (at most one per 10 s)
@@ -535,6 +537,10 @@ final class VPNManager: ObservableObject {
     /// pid of the sudo we started to its openfortivpn child and signals only that one. When the
     /// helper cannot, the signal goes to that sudo, which passes it on to its openfortivpn.
     private func signal(_ s: TunnelSession, _ p: Process, _ sig: String) {
+        if s.userRun {
+            if p.isRunning { if sig == "KILL" { kill(p.processIdentifier, SIGKILL) } else { p.terminate() } }
+            return
+        }
         let pid = String(p.processIdentifier)
         let r = Setup.run("/usr/bin/sudo", ["-n", Setup.resolverHelperPath, "stop", pid, sig])
         if r.status == 0 { return }
@@ -790,11 +796,19 @@ final class VPNManager: ObservableObject {
 
     /// Runs the helper's `command` for `s` (openfortivpn, OpenVPN or Xray as root), with `input` on
     /// its stdin; its output comes back line by line through handle(line:in:).
-    private func startHelper(_ s: TunnelSession, command: String, input config: String, verbose: Bool) {
+    private func startHelper(_ s: TunnelSession, command: String, input config: String, verbose: Bool, asUser: Bool = false) {
         let c = s.connection
         let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/usr/bin/sudo")
-        p.arguments = ["-n", Setup.resolverHelperPath, command] + (verbose ? ["-v"] : [])
+        s.userRun = asUser
+        if asUser {
+            // Apps-only Xray listens on 127.0.0.1 only and needs no root, so it runs as the user with FiveT's own copy.
+            p.executableURL = URL(fileURLWithPath: Setup.bundledXrayPath)
+            p.arguments = ["run", "-c", "stdin:"]
+            p.environment = ["PATH": "/usr/bin:/bin", "XRAY_LOCATION_ASSET": (Setup.bundledXrayGeoPath as NSString).deletingLastPathComponent]
+        } else {
+            p.executableURL = URL(fileURLWithPath: "/usr/bin/sudo")
+            p.arguments = ["-n", Setup.resolverHelperPath, command] + (verbose ? ["-v"] : [])
+        }
         let pipe = Pipe()
         let input = Pipe()
         p.standardOutput = pipe
@@ -825,7 +839,7 @@ final class VPNManager: ObservableObject {
         do {
             try p.run()
         } catch {
-            fail(s, "Could not start sudo: \(error.localizedDescription)")
+            fail(s, "Could not start \(asUser ? "Xray" : "sudo"): \(error.localizedDescription)")
             return
         }
         // The config reaches the helper through the pipe and is never written to disk. A helper
@@ -838,7 +852,7 @@ final class VPNManager: ObservableObject {
         s.pipe = pipe
         // How the one-time code goes out is not in openfortivpn's own log when it is part of the password.
         let codeNote = c.usesTOTP ? ", one-time code \(Self.describe(c.otpMode))" : ""
-        Log.shared.write("[\(c.name)] launched sudo -n <helper> \(command)\(verbose ? " -v" : "") (pid \(p.processIdentifier)) → \(c.gatewayDescription)\(codeNote)")
+        Log.shared.write("[\(c.name)] launched \(asUser ? "xray (apps only, 127.0.0.1:\(V2RayConfig.appProxyPort))" : "sudo -n <helper> \(command)")\(verbose ? " -v" : "") (pid \(p.processIdentifier)) → \(c.gatewayDescription)\(codeNote)")
     }
 
     /// openfortivpn's config: one "key = value" line each, the password (and code) included.
@@ -1107,7 +1121,10 @@ final class VPNManager: ObservableObject {
 
     /// The second half of launchV2Ray: the server's addresses are known, so Xray can start.
     private func startV2Ray(_ c: Connection, in s: TunnelSession, serverIPs: [String: [String]]) {
-        guard let tun = Self.freeTunName() else {
+        // Apps-only: no tunnel at all, just a local proxy the chosen apps are started with.
+        let appsOnly = ConnectionStore.shared.appsOnly
+        let tun = appsOnly ? nil : Self.freeTunName()
+        if !appsOnly && tun == nil {
             fail(s, "macOS has no free tunnel interface for \(c.name). Restart the Mac, then try again.")
             return
         }
@@ -1125,9 +1142,20 @@ final class VPNManager: ObservableObject {
             fail(s, "\(c.name) cannot be used: \(error.localizedDescription). Import it again in Settings → VPN.")
             return
         }
+        s.sentCredentials = false
+        s.appProxyPort = appsOnly ? V2RayConfig.appProxyPort : nil
+        if appsOnly {
+            // The Mac's own traffic stays where it is, so a block left by a full tunnel would only cut it off.
+            releaseKillSwitch()
+            s.pendingNetwork.interface = "app-proxy"
+            s.pendingNetwork.tunnelIP = "127.0.0.1"
+            s.pendingNetwork.fullTunnel = false
+            startHelper(s, command: "xray-run", input: config, verbose: false, asUser: true)
+            return
+        }
+        guard let tun else { return }
         // Still blocked by the kill switch: this server and this tunnel are what may pass now.
         if killSwitchActive { blockInternet(for: s, tun: tun) }
-        s.sentCredentials = false
         s.pendingNetwork.interface = tun
         s.pendingNetwork.tunnelIP = V2RayConfig.tunAddress
         s.pendingNetwork.peerIP = V2RayConfig.tunGateway
@@ -1167,7 +1195,7 @@ final class VPNManager: ObservableObject {
         let run = s.process
         // A moment for the routes and the DNS setting to take effect.
         DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + (attempt == 1 ? 0.7 : 0)) { [weak self, weak s] in
-            let ok = Self.v2rayCarriesTraffic(timeout: 6)
+            let ok = Self.v2rayCarriesTraffic(timeout: 6, socksPort: s?.appProxyPort)
             DispatchQueue.main.async {
                 guard let self, let s, s.process != nil, s.process === run, s.status.phase == .connecting, !s.stopRequested else { return }
                 if ok {
@@ -1191,6 +1219,7 @@ final class VPNManager: ObservableObject {
     /// or tries again when this was a reconnect.
     private func endRun(_ s: TunnelSession) {
         guard let p = s.process else { return }
+        if s.userRun { p.terminate(); return }
         let pid = String(p.processIdentifier)
         DispatchQueue.global(qos: .userInitiated).async {
             _ = Setup.run("/usr/bin/sudo", ["-n", Setup.resolverHelperPath, "stop", pid, "TERM"])
@@ -1199,11 +1228,12 @@ final class VPNManager: ObservableObject {
 
     /// A small web request through whatever carries the Mac's traffic: any HTTP answer counts.
     /// Plain HTTP to two well-known "generate_204" addresses, so no certificate gets in the way.
-    static func v2rayCarriesTraffic(timeout: TimeInterval) -> Bool {
+    static func v2rayCarriesTraffic(timeout: TimeInterval, socksPort: Int? = nil) -> Bool {
         let cfg = URLSessionConfiguration.ephemeral
         cfg.timeoutIntervalForRequest = timeout
         cfg.timeoutIntervalForResource = timeout
-        cfg.connectionProxyDictionary = [:]
+        // Apps-only: through FiveT's local SOCKS proxy, since nothing else goes through the server.
+        cfg.connectionProxyDictionary = socksPort.map { ["SOCKSEnable": 1, "SOCKSProxy": "127.0.0.1", "SOCKSPort": $0] } ?? [:]
         cfg.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
         let session = URLSession(configuration: cfg)
         defer { session.invalidateAndCancel() }
@@ -2032,7 +2062,8 @@ final class VPNManager: ObservableObject {
                 // Xray answers DNS and pings itself, server or no server: only a real request says.
                 server = "the V2Ray server"
                 name = "a web request"
-                check = { Self.v2rayCarriesTraffic(timeout: 5) }
+                let port = s.appProxyPort
+                check = { Self.v2rayCarriesTraffic(timeout: 5, socksPort: port) }
             } else {
                 guard let n = s.status.network,
                       let dns = n.dnsServers.first(where: { Self.ipv4($0, isCoveredBy: n.routes) }) else {
@@ -2148,6 +2179,34 @@ final class VPNManager: ObservableObject {
         guard killSwitchActive, Self.killSwitchHelper(["ks-off"]) else { return }
         killSwitchActive = false
         Log.shared.write("kill switch: the Mac's internet is open again")
+    }
+
+    /// Settings → VPN Settings → apps-only was switched: a V2Ray or Outline tunnel that is up starts again in the other mode.
+    func appsModeChanged() {
+        for s in live where s.connection.isV2Ray && !s.external && s.status.phase == .connected {
+            restart(s, reason: "apps-only mode was switched", why: "Switching mode", level: .info)
+        }
+    }
+
+    /// True while a VPN that carries the chosen apps is up.
+    var appProxyReady: Bool { live.contains { $0.appProxyPort != nil && $0.status.phase == .connected } }
+
+    /// Starts the app at `path` through the VPN's local proxy (Chromium and Electron apps take it as a
+    /// switch; the environment covers programs that read it). An app that is running ignores the switch,
+    /// so it must be closed first. Returns what to tell the user when it cannot.
+    func openThroughVPN(_ path: String) -> String? {
+        guard let port = live.first(where: { $0.appProxyPort != nil && $0.status.phase == .connected })?.appProxyPort else {
+            return "Connect a V2Ray or Outline VPN first."
+        }
+        let url = URL(fileURLWithPath: path)
+        let name = url.deletingPathExtension().lastPathComponent
+        if NSWorkspace.shared.runningApplications.contains(where: { $0.bundleURL?.path == url.path }) {
+            return "\(name) is already open, and an open app cannot be moved onto the VPN. Quit it, then choose this again."
+        }
+        let proxy = "127.0.0.1:\(port)"
+        let r = Setup.run("/usr/bin/open", ["-n", "-a", path, "--env", "ALL_PROXY=socks5h://\(proxy)", "--args", "--proxy-server=socks5://\(proxy)"])
+        Log.shared.write("opened \(name) through the VPN proxy \(proxy)" + (r.status == 0 ? "" : " (failed: \(r.output.trimmed))"), level: r.status == 0 ? .info : .error)
+        return r.status == 0 ? nil : "macOS could not open \(name): \(r.output.trimmed)"
     }
 
     /// Settings → General → Kill switch was switched: off lifts a block; on covers the tunnel that is up.
@@ -2533,6 +2592,11 @@ final class VPNManager: ObservableObject {
                 Log.shared.write("stopping FiveT's \(label) left running by an earlier FiveT (pid \(pid))")
                 _ = Setup.run("/usr/bin/sudo", ["-n", Setup.resolverHelperPath, "stop", pid, "TERM"])
             }
+        }
+        // An apps-only Xray runs as the user, so no helper is needed to stop it.
+        for pid in Setup.run("/usr/bin/pgrep", ["-f", "^\(Setup.bundledXrayPath) run "]).output.split(separator: "\n").compactMap({ Int32($0) }) {
+            Log.shared.write("stopping an apps-only Xray left running by an earlier FiveT (pid \(pid))")
+            kill(pid, SIGTERM)
         }
         let list = Setup.run("/bin/sh", ["-c", "echo 'list State:/Network/Service/app.fivet.[^/]+/DNS' | /usr/sbin/scutil"])
         let tags = list.output.components(separatedBy: "\n").compactMap { line -> String? in

@@ -508,6 +508,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             openvpn.forEach { menu.addItem(connectionItem($0)) }
         }
 
+        if ConnectionStore.shared.appsOnly, !ConnectionStore.shared.vpnApps.isEmpty {
+            menu.addItem(.separator())
+            menu.addItem(sectionHeader("Open with VPN"))
+            for path in ConnectionStore.shared.vpnApps {
+                let i = NSMenuItem(title: URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent,
+                                   action: #selector(openAppThroughVPN(_:)), keyEquivalent: "")
+                i.target = self
+                i.representedObject = path
+                i.image = NSWorkspace.shared.icon(forFile: path).resized(to: NSSize(width: 16, height: 16))
+                i.isEnabled = vpn.appProxyReady
+                menu.addItem(i)
+            }
+        }
+
         menu.addItem(.separator())
 
         if vpn.killSwitchActive {
@@ -586,6 +600,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             vpn.toggle(c)
         } else {
             whenSetUp { [vpn, store] in if let c = store.connection(id: id) { vpn.connect(c, byUser: true) } }
+        }
+    }
+
+    @objc private func openAppThroughVPN(_ sender: NSMenuItem) {
+        guard let path = sender.representedObject as? String else { return }
+        // After the menu has closed: an alert opened from inside a menu action blocks the menu's tracking.
+        DispatchQueue.main.async {
+            guard let problem = VPNManager.shared.openThroughVPN(path) else { return }
+            let a = NSAlert()
+            a.messageText = "Could not open the app through the VPN"
+            a.informativeText = problem
+            a.runModal()
         }
     }
 
@@ -857,5 +883,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         main.addItem(windowItem)
 
         NSApp.mainMenu = main
+    }
+}
+
+private extension NSImage {
+    func resized(to size: NSSize) -> NSImage {
+        let i = NSImage(size: size)
+        i.lockFocus()
+        draw(in: NSRect(origin: .zero, size: size), from: .zero, operation: .copy, fraction: 1)
+        i.unlockFocus()
+        return i
     }
 }
