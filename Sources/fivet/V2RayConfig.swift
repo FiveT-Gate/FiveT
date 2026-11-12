@@ -587,7 +587,11 @@ enum V2RayConfig {
     /// DNS gave the server's name before the tunnel existed: with the Mac's DNS pointing into the
     /// tunnel, Xray can only look the name up through the server, which it cannot reach without the
     /// answer, so a server given by name never connected. The helper checks the config again as root.
-    static func forLaunch(_ c: Connection, tun: String, localDNS: [String], direct: [String],
+    /// The port of the local SOCKS proxy in apps-only mode (`tun` nil): the same for every run, so an app
+    /// started through it finds the proxy again after a reconnect.
+    static let appProxyPort = 10808
+
+    static func forLaunch(_ c: Connection, tun: String?, localDNS: [String], direct: [String],
                           serverIPs: [String: [String]] = [:], verbose: Bool) throws -> String {
         guard var proxy = object(c.v2rayOutbound),
               let proto = proxy["protocol"] as? String, protocols.contains(proto.lowercased()) else {
@@ -603,15 +607,15 @@ enum V2RayConfig {
             }
             proxy["streamSettings"] = st
         }
-        var rules: [[String: Any]] = [
+        var rules: [[String: Any]] = tun == nil ? [] : [
             // The Mac's DNS questions (it asks tunGateway) are answered by Xray's DNS.
             ["inboundTag": ["tun"], "network": "udp", "port": "53", "outboundTag": "dns-out"],
             // Any other UDP is dropped. Xray cannot bind a UDP socket to the Wi-Fi here ("falied to set
             // interface"), so what it sent on would go straight back into the TUN and loop. Browsers
             // fall back from QUIC to TCP; the log shows "[tun -> block]" for each dropped flow.
             ["inboundTag": ["tun"], "network": "udp", "outboundTag": "block"],
-            ["ip": ["ext:geoip-lite.dat:private"], "outboundTag": "direct"],
         ]
+        rules.append(["ip": ["ext:geoip-lite.dat:private"], "outboundTag": "direct"])
         if !direct.isEmpty { rules.append(["ip": direct, "outboundTag": "direct"]) }
         var servers: [Any] = []
         if ConnectionStore.shared.bypassIran {
@@ -637,13 +641,19 @@ enum V2RayConfig {
             if known.values.contains(where: { $0.allSatisfy { $0.contains(":") } }) { dns["queryStrategy"] = "UseIP" }
         }
         rules.append(["network": "tcp,udp", "outboundTag": "proxy"])
+        // Apps-only: no TUN and no routes, just a SOCKS proxy on this Mac that the chosen apps are started with.
+        let appInbound: [String: Any] = [
+            "tag": "app", "protocol": "socks", "listen": "127.0.0.1", "port": appProxyPort,
+            "settings": ["auth": "noauth", "udp": false] as [String: Any],
+            "sniffing": ["enabled": true, "destOverride": ["http", "tls"], "routeOnly": true] as [String: Any],
+        ]
         let config: [String: Any] = [
             "log": ["loglevel": verbose ? "info" : "warning"],
-            "inbounds": [[
+            "inbounds": tun == nil ? [appInbound] : [[
                 "tag": "tun",
                 "protocol": "tun",
                 "settings": [
-                    "name": tun,
+                    "name": tun ?? "",
                     "mtu": 1500,
                     "gateway": ["\(tunGateway)/30"],
                     // Xray adds the routes itself and binds its own connections to the Wi-Fi or

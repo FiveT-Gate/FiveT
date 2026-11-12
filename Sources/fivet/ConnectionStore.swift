@@ -20,6 +20,11 @@ final class ConnectionStore: ObservableObject {
     @Published var killSwitch: Bool { didSet { persist() } }
     /// A VPN that stays down after a few reconnect tries hands over to the next VPN in the list.
     @Published var autoFailover: Bool { didSet { persist() } }
+    /// V2Ray and Outline only: the VPN carries just the apps in `vpnApps`, which FiveT starts through its local
+    /// proxy (Chromium and Electron apps, such as Claude or Chrome). Nothing else on the Mac uses it, and an app
+    /// started that way has no internet at all while the VPN is down.
+    @Published var appsOnly: Bool { didSet { persist() } }
+    @Published var vpnApps: [String] { didSet { persist() } }
     /// V2Ray and Outline: .ir names and Iranian addresses skip the server and go direct.
     @Published var bypassIran: Bool { didSet { persist() } }
     /// Settings → MCP: run the MCP server so assistants can control the app.
@@ -41,6 +46,8 @@ final class ConnectionStore: ObservableObject {
         var watchdog: Bool = true
         var killSwitch: Bool = false
         var autoFailover: Bool = false
+        var appsOnly: Bool = false
+        var vpnApps: [String] = []
         var bypassIran: Bool?   // nil: a file from before this was one setting for all connections
         var mcpEnabled: Bool = true
         var autoUpdate: Bool = true
@@ -49,7 +56,7 @@ final class ConnectionStore: ObservableObject {
         var unreadable = 0
 
         private enum CodingKeys: String, CodingKey {
-            case version, showNameInMenuBar, verboseLogging, verbosePackets, autoReconnect, watchdog, killSwitch, autoFailover, bypassIran, mcpEnabled, autoUpdate, connections
+            case version, showNameInMenuBar, verboseLogging, verbosePackets, autoReconnect, watchdog, killSwitch, autoFailover, appsOnly, vpnApps, bypassIran, mcpEnabled, autoUpdate, connections
         }
         /// One list entry that decodes to nil instead of failing the whole file.
         private struct Lossy: Decodable {
@@ -68,6 +75,8 @@ final class ConnectionStore: ObservableObject {
             watchdog = try c.decodeIfPresent(Bool.self, forKey: .watchdog) ?? true
             killSwitch = try c.decodeIfPresent(Bool.self, forKey: .killSwitch) ?? false
             autoFailover = try c.decodeIfPresent(Bool.self, forKey: .autoFailover) ?? false
+            appsOnly = try c.decodeIfPresent(Bool.self, forKey: .appsOnly) ?? false
+            vpnApps = try c.decodeIfPresent([String].self, forKey: .vpnApps) ?? []
             bypassIran = try c.decodeIfPresent(Bool.self, forKey: .bypassIran)
             mcpEnabled = try c.decodeIfPresent(Bool.self, forKey: .mcpEnabled) ?? true
             autoUpdate = try c.decodeIfPresent(Bool.self, forKey: .autoUpdate) ?? true
@@ -126,6 +135,8 @@ final class ConnectionStore: ObservableObject {
         watchdog = loaded.watchdog
         killSwitch = loaded.killSwitch
         autoFailover = loaded.autoFailover
+        appsOnly = loaded.appsOnly
+        vpnApps = loaded.vpnApps
         // It used to be set per connection: on, unless every V2Ray connection had it off.
         let v2ray = loaded.connections.filter(\.isV2Ray)
         bypassIran = loaded.bypassIran ?? (v2ray.isEmpty || v2ray.contains(where: \.v2rayIranDirect))
@@ -169,6 +180,8 @@ final class ConnectionStore: ObservableObject {
         f.watchdog = watchdog
         f.killSwitch = killSwitch
         f.autoFailover = autoFailover
+        f.appsOnly = appsOnly
+        f.vpnApps = vpnApps
         f.bypassIran = bypassIran
         f.mcpEnabled = mcpEnabled
         f.autoUpdate = autoUpdate
@@ -218,6 +231,8 @@ final class ConnectionStore: ObservableObject {
         watchdog = f.watchdog
         if killSwitch != f.killSwitch { killSwitch = f.killSwitch; VPNManager.shared.killSwitchChanged() }
         autoFailover = f.autoFailover
+        appsOnly = f.appsOnly
+        vpnApps = f.vpnApps
         bypassIran = f.bypassIran ?? bypassIran
         mcpEnabled = f.mcpEnabled
         autoUpdate = f.autoUpdate

@@ -378,6 +378,7 @@ final class MCPServer: ObservableObject {
         gateway does not push. Use resolve and check_reachability to diagnose "VPN up but \
         host unreachable" in one call; they report both the tunnel DNS and the system resolver. \
         get_log returns event lines (info and errors) by default; ask for level "debug" for openfortivpn chatter. \
+        get_settings and set_settings read and change the switches (kill switch, failover, Bypass Iranian Websites, apps-only mode and its app list, reconnect, watchdog); unblock_internet lifts a kill switch block. These protect the user's privacy: change only what they asked for. In apps-only mode (V2Ray and Outline) the VPN carries just the chosen apps, which the user starts from FiveT's menu (Open with VPN): the rest of the Mac is not on the VPN, and get_status shows interface "app-proxy".
         Passwords and one-time-code secrets are never exposed.
         """
 
@@ -438,6 +439,20 @@ enum MCPTools {
              properties: [
                 "name": ["type": "string", "description": "Connection name as shown by list_connections (case-insensitive; the id also works). Omit to disconnect all."],
              ]),
+        tool("get_settings",
+             "FiveT's switches as they are now: kill_switch, bypass_iranian_websites, failover (switch to the next VPN when one stays down), apps_only (the VPN carries only the apps in vpn_apps, V2Ray and Outline), vpn_apps (full paths of the chosen apps), auto_reconnect, watchdog, show_name_in_menu_bar.",
+             readOnly: true),
+        tool("set_settings",
+             "Change the switches get_settings lists: only the ones given. These protect the user's privacy (the kill switch, apps-only), so change only what the user asked for, and say what you changed. vpn_apps replaces the whole list; give full paths such as /Applications/Claude.app. Passwords, certificate trust, connections and updates are not available here: the user does those in FiveT.",
+             properties: [
+                "kill_switch": ["type": "boolean"], "bypass_iranian_websites": ["type": "boolean"], "failover": ["type": "boolean"],
+                "apps_only": ["type": "boolean", "description": "Switching it restarts a V2Ray or Outline tunnel that is up in the other mode."],
+                "vpn_apps": ["type": "array", "items": ["type": "string"]],
+                "auto_reconnect": ["type": "boolean"], "watchdog": ["type": "boolean"], "show_name_in_menu_bar": ["type": "boolean"],
+             ]),
+        tool("unblock_internet",
+             "Lifts the kill switch block that is holding the Mac's internet shut because a VPN dropped (the same as Unblock Internet in FiveT's menu). Without a VPN the Mac's traffic then goes out unprotected, so use it only when the user asks.",
+             properties: [:]),
         tool("get_log",
              "Recent lines of FiveT's log: connect/disconnect events, authentication, tunnel up, DNS and routes, errors, MCP calls. Default level \"info\" hides openfortivpn's DEBUG chatter; packet traces are never stored unless enabled in Settings.",
              properties: [
@@ -599,6 +614,52 @@ enum MCPTools {
             // Same JSON in text and structuredContent, like every other tool.
             return result(["lines": entries.map(\.line), "count": entries.count, "level": level.rawValue])
 
+        case "get_settings":
+            return result(onMain { settingsDict() })
+
+        case "set_settings":
+            var apps: [String]?
+            if let raw = args["vpn_apps"] {
+                guard let list = raw as? [String] else { throw RPCError(-32602, "'vpn_apps' must be a list of app paths") }
+                var isDir: ObjCBool = false
+                for p in list where !(p.hasPrefix("/") && p.hasSuffix(".app") && FileManager.default.fileExists(atPath: p, isDirectory: &isDir) && isDir.boolValue) {
+                    throw RPCError(-32602, "'\(p)' is not an installed app: give its full path, e.g. /Applications/Claude.app")
+                }
+                apps = list
+            }
+            let flags: [(String, ReferenceWritableKeyPath<ConnectionStore, Bool>)] = [
+                ("kill_switch", \.killSwitch), ("bypass_iranian_websites", \.bypassIran), ("failover", \.autoFailover),
+                ("apps_only", \.appsOnly), ("auto_reconnect", \.autoReconnect), ("watchdog", \.watchdog),
+                ("show_name_in_menu_bar", \.showNameInMenuBar),
+            ]
+            var values: [(String, ReferenceWritableKeyPath<ConnectionStore, Bool>, Bool)] = []
+            for (key, path) in flags where args[key] != nil {
+                guard let v = args[key] as? Bool else { throw RPCError(-32602, "'\(key)' must be true or false") }
+                values.append((key, path, v))
+            }
+            guard !values.isEmpty || apps != nil else { throw RPCError(-32602, "give at least one setting to change (see get_settings)") }
+            let changed: [String] = onMain {
+                let st = ConnectionStore.shared
+                var changed: [String] = []
+                for (key, path, v) in values where st[keyPath: path] != v {
+                    st[keyPath: path] = v
+                    changed.append(key)
+                    if key == "kill_switch" { VPNManager.shared.killSwitchChanged() }
+                    if key == "apps_only" { VPNManager.shared.appsModeChanged() }
+                }
+                if let apps, apps != st.vpnApps { st.vpnApps = apps; changed.append("vpn_apps") }
+                return changed
+            }
+            Log.shared.write("[mcp] settings changed: \(changed.isEmpty ? "nothing (already so)" : changed.joined(separator: ", "))")
+            var d = onMain { settingsDict() }
+            d["changed"] = changed
+            return result(d)
+
+        case "unblock_internet":
+            let was = onMain { VPNManager.shared.killSwitchActive }
+            onMain { VPNManager.shared.releaseKillSwitch() }
+            return result(["was_blocked": was, "kill_switch_blocking": onMain { VPNManager.shared.killSwitchActive }])
+
         case "get_diagnostics":
             let checks = Setup.checks()   // runs processes: here, not on the main thread
             return text(onMain { Diagnostics.text(checks: checks) })
@@ -619,6 +680,14 @@ enum MCPTools {
     }
 
     // MARK: helpers
+
+    /// Call on the main thread.
+    private static func settingsDict() -> [String: Any] {
+        let st = ConnectionStore.shared
+        return ["kill_switch": st.killSwitch, "bypass_iranian_websites": st.bypassIran, "failover": st.autoFailover,
+                "apps_only": st.appsOnly, "vpn_apps": st.vpnApps, "auto_reconnect": st.autoReconnect,
+                "watchdog": st.watchdog, "show_name_in_menu_bar": st.showNameInMenuBar]
+    }
 
     static func onMain<T>(_ body: () -> T) -> T {
         if Thread.isMainThread { return body() }
@@ -1027,6 +1096,9 @@ enum FiveTCLI {
           resolve <host>              resolve via the tunnel DNS and the system resolver
           check <host> [port]         DNS + route + TCP connect diagnosis (default port 443)
           diagnostics                 full diagnostics text
+          settings                    the switches (kill switch, failover, apps only, …)
+          set <setting> <on|off>      change one switch; "set vpn_apps <path>,<path>" or "set vpn_apps none" for the app list
+          unblock                     lift a kill switch block
           --mcp                       run as an MCP server over stdio (for AI assistants)
           --version, --help
 
@@ -1071,6 +1143,16 @@ enum FiveTCLI {
                 tool = "check_reachability"; params["host"] = host
                 if args.count > 1, let p = Int(args[1]) { params["port"] = p }
                 if let v = option("--port", in: args) { params["port"] = Int(v) ?? 443 }
+            case "settings": tool = "get_settings"
+            case "set":
+                guard args.count >= 2 else { throw RPCError(2, "set needs a setting and a value, e.g. set kill_switch on") }
+                tool = "set_settings"
+                if args[0] == "vpn_apps" {
+                    params["vpn_apps"] = args[1] == "none" ? [] : args[1].split(separator: ",").map(String.init)
+                } else if ["on", "true", "yes"].contains(args[1]) { params[args[0]] = true }
+                else if ["off", "false", "no"].contains(args[1]) { params[args[0]] = false }
+                else { throw RPCError(2, "the value must be on or off") }
+            case "unblock": tool = "unblock_internet"
             case "diagnostics", "diag": tool = "get_diagnostics"
             default: throw RPCError(2, "unknown command '\(command)'")
             }
