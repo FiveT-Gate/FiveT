@@ -614,7 +614,10 @@ final class VPNManager: ObservableObject {
         let otherVPNs = c.isOtherVPN ? live.filter { $0 !== s && !$0.external && $0.connection.isOtherVPN } : []
         for o in otherVPNs where o.status.phase != .disconnecting {
             Log.shared.write("[\(c.name)] switching from \(o.name): one VPN at a time")
-            if guarded, o.blockOnExit != nil { blockInternet(for: o) }
+            if guarded, o.blockOnExit != nil {
+                Log.shared.write("[\(c.name)] kill switch: blocking the Mac's internet before \(o.name) stops, until \(c.name) is up")
+                blockInternet(for: o)
+            }
             halt(o)
         }
         if let other = otherVPNs.first {
