@@ -307,13 +307,18 @@ and user) is shown but not ticked; a new one whose name is taken gets " (FortiCl
 ## Backup: export and import settings
 
 Settings → General → **Backup** has **Export Settings…** and **Import Settings…**, the Mac's two buttons. Export writes a
-`.fivet` file with every connection and the settings; import reads one, from this PC, another PC or a Mac. The file has the
-layout of the Mac's `connections.json`, so it opens on both.
+`.fivet` file with every connection and the settings; import reads one, from this PC or another PC. The save dialog offers
+the name `YYYY-MM-DD_FiveT.fivet` (today's date, then the backup name); you can change it.
 
-- **The secrets are in the file in plain text** (passwords, one-time-code secrets, OpenVPN profiles, V2Ray links). The copy
-  in `connections.json` is DPAPI-encrypted and only opens for the same Windows account on the same PC, which is no use in a
-  backup. Keep the file private. FiveT limits it to your Windows account where the drive allows (a USB stick with FAT cannot)
-  and says so when it cannot.
+- **The file is always encrypted** (AES-256-GCM, a fresh nonce each time), so only FiveT can read it; a changed or damaged
+  file is refused. The key is built into FiveT and is public with the source, so this keeps the file from other programs
+  and casual eyes, not from someone who reads the code: a password asked at export would be the real protection.
+  Inside, the secrets (passwords, one-time-code secrets, OpenVPN profiles, V2Ray links) are plain text in the layout of the
+  Mac's `connections.json`, because the DPAPI copy in `connections.json` only opens for the same Windows account on the same
+  PC. Keep the file private anyway. FiveT limits it to your Windows account where the drive allows (a USB stick with FAT
+  cannot) and says so when it cannot.
+- **Mac files.** FiveT for Mac writes and reads plain `.fivet` files. Import here accepts such a plain file (and one from
+  FiveT 2.2.0), but a file made here is encrypted, so a Mac cannot open it.
 - **Import adds and replaces.** A connection with the id of a saved one replaces it where it stands; the others are added. The
   settings in the file replace this PC's; a setting the file does not hold stays. What was saved before is kept once as
   `connections.json.before-import` (it is encrypted like `connections.json`). A file that is not a FiveT file is refused and
@@ -464,7 +469,7 @@ Copy Diagnostics and the log switches.
 |------|-------|
 | Connections and settings | `%LOCALAPPDATA%\FiveT\connections.json` (passwords DPAPI-encrypted) |
 | Log | `%LOCALAPPDATA%\FiveT\Logs\fivet.log` (moved to `fivet.log.1` at 5 MB, one line per entry) |
-| A `.fivet` backup | wherever you save it (Settings → General → Backup); passwords and secrets in plain text |
+| A `.fivet` backup | wherever you save it (Settings → General → Backup); passwords and secrets inside, the file encrypted |
 | Your connections before an import | `connections.json.before-import` next to `connections.json` |
 | A `connections.json` FiveT could not read | kept as `connections.json.bad-<date-time>` next to it; FiveT will not save over the original until that copy exists, and says so on Settings → General |
 | Login task | Task Scheduler → `FiveT` |
