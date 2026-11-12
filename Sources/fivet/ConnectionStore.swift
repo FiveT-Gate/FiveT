@@ -18,6 +18,8 @@ final class ConnectionStore: ObservableObject {
     @Published var watchdog: Bool { didSet { persist() } }
     /// Block the Mac's internet while a VPN that carries all traffic is down without having been switched off.
     @Published var killSwitch: Bool { didSet { persist() } }
+    /// A VPN that stays down after a few reconnect tries hands over to the next VPN in the list.
+    @Published var autoFailover: Bool { didSet { persist() } }
     /// V2Ray and Outline: .ir names and Iranian addresses skip the server and go direct.
     @Published var bypassIran: Bool { didSet { persist() } }
     /// Settings → MCP: run the MCP server so assistants can control the app.
@@ -38,6 +40,7 @@ final class ConnectionStore: ObservableObject {
         var autoReconnect: Bool = true
         var watchdog: Bool = true
         var killSwitch: Bool = false
+        var autoFailover: Bool = false
         var bypassIran: Bool?   // nil: a file from before this was one setting for all connections
         var mcpEnabled: Bool = true
         var autoUpdate: Bool = true
@@ -46,7 +49,7 @@ final class ConnectionStore: ObservableObject {
         var unreadable = 0
 
         private enum CodingKeys: String, CodingKey {
-            case version, showNameInMenuBar, verboseLogging, verbosePackets, autoReconnect, watchdog, killSwitch, bypassIran, mcpEnabled, autoUpdate, connections
+            case version, showNameInMenuBar, verboseLogging, verbosePackets, autoReconnect, watchdog, killSwitch, autoFailover, bypassIran, mcpEnabled, autoUpdate, connections
         }
         /// One list entry that decodes to nil instead of failing the whole file.
         private struct Lossy: Decodable {
@@ -64,6 +67,7 @@ final class ConnectionStore: ObservableObject {
             autoReconnect = try c.decodeIfPresent(Bool.self, forKey: .autoReconnect) ?? true
             watchdog = try c.decodeIfPresent(Bool.self, forKey: .watchdog) ?? true
             killSwitch = try c.decodeIfPresent(Bool.self, forKey: .killSwitch) ?? false
+            autoFailover = try c.decodeIfPresent(Bool.self, forKey: .autoFailover) ?? false
             bypassIran = try c.decodeIfPresent(Bool.self, forKey: .bypassIran)
             mcpEnabled = try c.decodeIfPresent(Bool.self, forKey: .mcpEnabled) ?? true
             autoUpdate = try c.decodeIfPresent(Bool.self, forKey: .autoUpdate) ?? true
@@ -121,6 +125,7 @@ final class ConnectionStore: ObservableObject {
         autoReconnect = loaded.autoReconnect
         watchdog = loaded.watchdog
         killSwitch = loaded.killSwitch
+        autoFailover = loaded.autoFailover
         // It used to be set per connection: on, unless every V2Ray connection had it off.
         let v2ray = loaded.connections.filter(\.isV2Ray)
         bypassIran = loaded.bypassIran ?? (v2ray.isEmpty || v2ray.contains(where: \.v2rayIranDirect))
@@ -163,6 +168,7 @@ final class ConnectionStore: ObservableObject {
         f.autoReconnect = autoReconnect
         f.watchdog = watchdog
         f.killSwitch = killSwitch
+        f.autoFailover = autoFailover
         f.bypassIran = bypassIran
         f.mcpEnabled = mcpEnabled
         f.autoUpdate = autoUpdate
@@ -211,6 +217,7 @@ final class ConnectionStore: ObservableObject {
         autoReconnect = f.autoReconnect
         watchdog = f.watchdog
         if killSwitch != f.killSwitch { killSwitch = f.killSwitch; VPNManager.shared.killSwitchChanged() }
+        autoFailover = f.autoFailover
         bypassIran = f.bypassIran ?? bypassIran
         mcpEnabled = f.mcpEnabled
         autoUpdate = f.autoUpdate

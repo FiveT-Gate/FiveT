@@ -137,6 +137,7 @@ private final class TunnelSession {
     var waitTimer: Timer?
     var reconnectTimer: Timer?
     var reconnectAttempt = 0
+    var failedOver = false            // started by a failover: its first failed try is retried, so the chain can go on
     var waitingForNetwork = false     // a reconnect is due, but the Mac has no network: retry when it is back
     var lastNetworkLaunch: Date?      // the last reconnect a network change started (at most one per 10 s)
     var pendingNetwork = NetworkInfo()      // filled from openfortivpn lines while connecting
@@ -1032,6 +1033,7 @@ final class VPNManager: ObservableObject {
         let c = s.connection
         if s.reconnectAttempt > 0 { Log.shared.write("[\(c.name)] reconnected after \(s.reconnectAttempt) attempt(s)") }
         s.reconnectAttempt = 0
+        s.failedOver = false
         s.probeFailures = 0
         s.watchdogSkipLogged = false
         s.watchdogAnnounced = false
@@ -1533,7 +1535,7 @@ final class VPNManager: ObservableObject {
                 }
             }
             if isAuthFailure(s.lastErrorLine) { msg += lastConnectedNote(s.connection) }
-            let retryable = s.reconnectAttempt > 0 && !previous.needsSetup && !isAuthFailure(s.lastErrorLine)
+            let retryable = (s.reconnectAttempt > 0 || s.failedOver) && !previous.needsSetup && !isAuthFailure(s.lastErrorLine)
             if retryable {
                 Log.shared.write("[\(s.name)] reconnect attempt \(s.reconnectAttempt) failed: \(msg)", level: .error)
                 scheduleReconnect(s, attempt: s.reconnectAttempt + 1)
@@ -1722,6 +1724,7 @@ final class VPNManager: ObservableObject {
             return
         }
         guard networkUp else { waitForNetwork(s); return }
+        if attempt > Self.failoverAfter, failOver(from: s) { return }
         let delay = delay ?? (attempt == 1 ? 2 : min(Double(attempt - 1) * 10, 60))
         s.status = VPNStatus(phase: .connecting, connectionID: c.id, connectionName: c.name,
                              detail: "\(why), retrying in \(Int(delay))s (try \(attempt))…", waitingToRetry: true)
@@ -1735,6 +1738,23 @@ final class VPNManager: ObservableObject {
         }
         RunLoop.main.add(t, forMode: .common)
         s.reconnectTimer = t
+    }
+
+    /// This many failed reconnects, then the next VPN takes over (Settings → General → VPN Settings).
+    private static let failoverAfter = 3
+
+    /// Hands over to the next VPN in the list after `s`, going round to the first at the end, when
+    /// the setting is on and `s` is a VPN. False: nothing else to switch to, `s` keeps retrying.
+    /// connect() stops `s` ("one VPN at a time", with the kill switch still blocking in between).
+    private func failOver(from s: TunnelSession) -> Bool {
+        let all = ConnectionStore.shared.connections.filter(\.isOtherVPN)
+        guard ConnectionStore.shared.autoFailover, s.connection.isOtherVPN,
+              let i = all.firstIndex(where: { $0.id == s.connection.id }), all.count > 1 else { return false }
+        let next = all[(i + 1) % all.count]
+        Log.shared.write("[\(s.name)] still down after \(Self.failoverAfter) tries; failing over to \(next.name)", level: .error)
+        connect(next)
+        session(for: next.id)?.failedOver = true
+        return true
     }
 
     /// A reconnect that is due while the Mac has no network: nothing to try until there is one

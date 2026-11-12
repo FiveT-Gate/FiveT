@@ -1124,6 +1124,9 @@ struct GeneralTab: View {
                     .onChange(of: store.killSwitch) { _ in VPNManager.shared.killSwitchChanged() }
                 Text("Blocks internet access if the VPN drops.")
                     .font(.caption).foregroundStyle(.secondary)
+                Toggle("Switch to Another VPN if One Stops Working", isOn: $store.autoFailover)
+                Text("If a VPN stays down after a few tries, FiveT connects the next VPN in your list, and keeps going round the list until one works.")
+                    .font(.caption).foregroundStyle(.secondary)
                 Toggle("Bypass Iranian Websites", isOn: $store.bypassIran)
                 Text("Iranian sites connect directly, without the VPN.")
                     .font(.caption).foregroundStyle(.secondary)
