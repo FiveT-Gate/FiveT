@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import Combine
 
 // FiveT as an MCP server (Model Context Protocol), so AI assistants such as Claude Desktop,
@@ -378,7 +379,7 @@ final class MCPServer: ObservableObject {
         gateway does not push. Use resolve and check_reachability to diagnose "VPN up but \
         host unreachable" in one call; they report both the tunnel DNS and the system resolver. \
         get_log returns event lines (info and errors) by default; ask for level "debug" for openfortivpn chatter. \
-        get_settings and set_settings read and change the switches (kill switch, failover, Bypass Iranian Websites, apps-only mode and its app list, reconnect, watchdog); unblock_internet lifts a kill switch block. These protect the user's privacy: change only what they asked for. In apps-only mode (V2Ray and Outline) the VPN carries just the chosen apps, which the user starts from FiveT's menu (Open with VPN): the rest of the Mac is not on the VPN, and get_status shows interface "app-proxy".
+        get_settings and set_settings read and change the switches (kill switch, failover, Bypass Iranian Websites, apps-only mode and its app list, reconnect, watchdog); unblock_internet lifts a kill switch block. These protect the user's privacy: change only what they asked for. Lowering protection (kill switch off, apps-only on, Bypass Iranian Websites on, unblock_internet) makes FiveT ask the user in a dialog on the Mac; if they decline, nothing changes. In apps-only mode (V2Ray and Outline) the VPN carries just the chosen apps, which the user starts from FiveT's menu (Open with VPN): the rest of the Mac is not on the VPN, and get_status shows interface "app-proxy".
         Passwords and one-time-code secrets are never exposed.
         """
 
@@ -443,16 +444,16 @@ enum MCPTools {
              "FiveT's switches as they are now: kill_switch, bypass_iranian_websites, failover (switch to the next VPN when one stays down), apps_only (the VPN carries only the apps in vpn_apps, V2Ray and Outline), vpn_apps (full paths of the chosen apps), auto_reconnect, watchdog, show_name_in_menu_bar.",
              readOnly: true),
         tool("set_settings",
-             "Change the switches get_settings lists: only the ones given. These protect the user's privacy (the kill switch, apps-only), so change only what the user asked for, and say what you changed. vpn_apps replaces the whole list; give full paths such as /Applications/Claude.app. Passwords, certificate trust, connections and updates are not available here: the user does those in FiveT.",
+             "Change the switches get_settings lists: only the ones given. These protect the user's privacy (the kill switch, apps-only), so change only what the user asked for, and say what you changed. vpn_apps replaces the whole list; give full paths such as /Applications/Claude.app. Passwords, certificate trust, connections and updates are not available here: the user does those in FiveT. Turning protection on needs nothing; lowering it (kill_switch off, apps_only on, bypass_iranian_websites on) makes FiveT ask the user in a dialog on the Mac, and nothing changes unless they allow it.",
              properties: [
                 "kill_switch": ["type": "boolean"], "bypass_iranian_websites": ["type": "boolean"], "failover": ["type": "boolean"],
                 "apps_only": ["type": "boolean", "description": "Switching it restarts a V2Ray or Outline tunnel that is up in the other mode."],
                 "vpn_apps": ["type": "array", "items": ["type": "string"]],
                 "auto_reconnect": ["type": "boolean"], "watchdog": ["type": "boolean"], "show_name_in_menu_bar": ["type": "boolean"],
-             ]),
+             ], destructive: true),
         tool("unblock_internet",
-             "Lifts the kill switch block that is holding the Mac's internet shut because a VPN dropped (the same as Unblock Internet in FiveT's menu). Without a VPN the Mac's traffic then goes out unprotected, so use it only when the user asks.",
-             properties: [:]),
+             "Lifts the kill switch block that is holding the Mac's internet shut because a VPN dropped (the same as Unblock Internet in FiveT's menu). Without a VPN the Mac's traffic then goes out unprotected, so use it only when the user asks. FiveT asks the user in a dialog on the Mac first, and nothing is lifted unless they allow it.",
+             properties: [:], destructive: true),
         tool("get_log",
              "Recent lines of FiveT's log: connect/disconnect events, authentication, tunnel up, DNS and routes, errors, MCP calls. Default level \"info\" hides openfortivpn's DEBUG chatter; packet traces are never stored unless enabled in Settings.",
              properties: [
@@ -483,12 +484,12 @@ enum MCPTools {
 
     private static func tool(_ name: String, _ description: String,
                              properties: [String: Any] = [:], required: [String] = [],
-                             readOnly: Bool = false) -> [String: Any] {
+                             readOnly: Bool = false, destructive: Bool = false) -> [String: Any] {
         var schema: [String: Any] = ["type": "object", "properties": properties, "additionalProperties": false]
         if !required.isEmpty { schema["required"] = required }
         let annotations: [String: Any] = readOnly
             ? ["readOnlyHint": true, "openWorldHint": false]
-            : ["readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false]
+            : ["readOnlyHint": false, "destructiveHint": destructive, "idempotentHint": true, "openWorldHint": false]
         return ["name": name, "description": description, "inputSchema": schema, "annotations": annotations]
     }
 
@@ -638,6 +639,23 @@ enum MCPTools {
                 values.append((key, path, v))
             }
             guard !values.isEmpty || apps != nil else { throw RPCError(-32602, "give at least one setting to change (see get_settings)") }
+            // Lowering protection from outside the app (an assistant, the command line) needs the user's yes,
+            // asked by FiveT itself, so a prompt-injected assistant cannot switch it off on its own.
+            let lowering: [String] = onMain {
+                let st = ConnectionStore.shared
+                return values.compactMap { key, path, v in
+                    guard st[keyPath: path] != v else { return nil }
+                    switch (key, v) {
+                    case ("kill_switch", false): return "turn the Kill Switch off"
+                    case ("apps_only", true): return "put only the chosen apps on the VPN (the rest of the Mac stops using it)"
+                    case ("bypass_iranian_websites", true): return "send Iranian websites around the VPN"
+                    default: return nil
+                    }
+                }
+            }
+            if !lowering.isEmpty, !userAllows(lowering.joined(separator: " and ")) {
+                return result(["changed": [], "denied": true, "message": "The user did not allow this change in FiveT's dialog. Nothing was changed."], isError: true)
+            }
             let changed: [String] = onMain {
                 let st = ConnectionStore.shared
                 var changed: [String] = []
@@ -657,6 +675,10 @@ enum MCPTools {
 
         case "unblock_internet":
             let was = onMain { VPNManager.shared.killSwitchActive }
+            if was, !userAllows("lift the Kill Switch block and let the Mac's internet out without the VPN") {
+                return result(["was_blocked": true, "denied": true, "kill_switch_blocking": true,
+                               "message": "The user did not allow this in FiveT's dialog. The block stays."], isError: true)
+            }
             onMain { VPNManager.shared.releaseKillSwitch() }
             return result(["was_blocked": was, "kill_switch_blocking": onMain { VPNManager.shared.killSwitchActive }])
 
@@ -680,6 +702,19 @@ enum MCPTools {
     }
 
     // MARK: helpers
+
+    /// Asks the user, in a dialog of FiveT's own on the Mac, whether to allow `what`. The default button is Don't Allow.
+    private static func userAllows(_ what: String) -> Bool {
+        onMain {
+            NSApp.activate(ignoringOtherApps: true)
+            let a = NSAlert()
+            a.messageText = "Allow this change?"
+            a.informativeText = "An assistant or the command line asked FiveT to \(what). This lowers the protection FiveT gives you. Allow it only if you asked for it."
+            a.addButton(withTitle: "Don't Allow")
+            a.addButton(withTitle: "Allow")
+            return a.runModal() == .alertSecondButtonReturn
+        }
+    }
 
     /// Call on the main thread.
     private static func settingsDict() -> [String: Any] {
