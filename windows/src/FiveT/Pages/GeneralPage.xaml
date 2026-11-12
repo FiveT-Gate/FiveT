@@ -108,7 +108,7 @@
             </tk:SettingsCard>
 
             <TextBlock Text="Backup" Style="{StaticResource SettingsGroupHeaderStyle}" />
-            <tk:SettingsCard Header="Export and import settings" Description="A .fivet file holds all connections and settings, with their passwords and one-time-code secrets in plain text, so keep it private. Import it on another PC or on a Mac to copy them.">
+            <tk:SettingsCard Header="Export and import settings" Description="A .fivet file holds all connections and settings, with their passwords and one-time-code secrets, encrypted so that only FiveT can open it. Import it on another PC to copy them (a Mac file from FiveT for Mac also imports here).">
                 <tk:SettingsCard.HeaderIcon>
                     <FontIcon Glyph="&#xE8B5;" />
                 </tk:SettingsCard.HeaderIcon>

@@ -265,8 +265,12 @@ Settings → General → Backup is the Mac's Export Settings… / Import Setting
 `Restore()`, `Backup.cs` (merge rule and the Mac's date, unit-tested) and `NativeUi.SaveFile` (classic dialog: the UWP pickers
 refuse to run elevated). Do not undo:
 
-- **The file is the Mac's `connections.json` layout with plain secrets** (`password`, not `passwordProtected`): DPAPI text opens
+- **The text inside is the Mac's `connections.json` layout with plain secrets** (`password`, not `passwordProtected`): DPAPI text opens
   only for the same account on the same PC. `ConnectionJson(c, export)` builds both forms, so a new connection field is added once.
+- **The file is ALWAYS encrypted** (user rule, 2.3.0): `Backup.Seal` = `FIVETBK1` + 12-byte nonce + AES-256-GCM cipher text + 16-byte
+  tag, key built in (public with the source; a password at export is the upgrade). `Backup.Open` decrypts, and still takes a plain
+  file (the Mac writes plain `.fivet`; 2.2.0 did too). Never write `ExportText()` to disk unsealed. The Mac cannot open a sealed file.
+  Default name `Backup.DefaultFileName` = `YYYY-MM-DD_FiveT.fivet` (user rule).
 - **`lastConnectedAt` is written as the Mac's number** (seconds since 2001-01-01 UTC), because the Mac's decoder drops a whole
   connection whose date is text. `Load` reads both forms.
 - **Import follows the Mac:** settings replace, connections are added, same id replaces in place. Only settings that mean the same

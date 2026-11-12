@@ -342,12 +342,12 @@ public sealed partial class GeneralPage : Page, IDetachable
 
     private void ExportSettings_Click(object sender, RoutedEventArgs e)
     {
-        var file = NativeUi.SaveFile(WindowHandle, "Export FiveT settings", "FiveT settings|*.fivet|All files|*.*", "FiveT.fivet", "fivet");
+        var file = NativeUi.SaveFile(WindowHandle, "Export FiveT settings", "FiveT settings|*.fivet|All files|*.*", Backup.DefaultFileName(DateTime.Now), "fivet");
         if (file == null) return;
         try
         {
-            SafeFile.Replace(file, _store.ExportText());
-            var message = $"Saved {Path.GetFileName(file)}. It holds your passwords and one-time-code secrets in plain text: keep it private.";
+            SafeFile.Replace(file, Backup.Seal(_store.ExportText()));
+            var message = $"Saved {Path.GetFileName(file)}. It is encrypted: only FiveT can open it. Keep it private anyway.";
             if (!KeepPrivate(file)) message += " Windows could not limit who can open it on that drive.";
             if (_store.UnreadableSecretCount > 0) message += $" {_store.UnreadableSecretCount} saved secret(s) could not be read on this PC and are not in the file.";
             ShowMessage(message, InfoBarSeverity.Success);
@@ -362,7 +362,7 @@ public sealed partial class GeneralPage : Page, IDetachable
         try
         {
             if (new FileInfo(file).Length > 20 * 1024 * 1024) throw new InvalidDataException("This is not a FiveT settings file (it is far too large).");
-            var result = _store.Restore(File.ReadAllText(file));
+            var result = _store.Restore(Backup.Open(File.ReadAllBytes(file)));
             Reload();
             ShowMessage(result, InfoBarSeverity.Success);
         }
