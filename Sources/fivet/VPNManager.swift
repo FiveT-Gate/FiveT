@@ -1148,6 +1148,7 @@ final class VPNManager: ObservableObject {
             // A block the kill switch holds for a full tunnel that dropped stays: only the user (Unblock Internet,
             // Disconnect) lifts it, never a connect, and the server stays reachable through it.
             if killSwitchActive { blockInternet(for: s) }
+            AppProxyHold.shared.release()   // Xray takes the port now
             s.pendingNetwork.interface = "app-proxy"
             s.pendingNetwork.tunnelIP = "127.0.0.1"
             s.pendingNetwork.fullTunnel = false
@@ -1477,6 +1478,7 @@ final class VPNManager: ObservableObject {
         removeSplitDNS(s)
         clearTunnelDNS(s)
         s.stopTimer?.invalidate(); s.stopTimer = nil
+        if s.userRun { AppProxyHold.shared.take() }   // apps-only: nobody else gets the port while Xray is away
         s.process = nil
         s.pipe = nil
         let code = proc.terminationStatus
@@ -2687,5 +2689,49 @@ final class VPNManager: ObservableObject {
             return "Could not reach the gateway. Is another VPN switched on?"
         }
         return l.replacingOccurrences(of: "ERROR:", with: "").trimmed
+    }
+}
+
+/// Apps-only mode: apps started through the VPN point at one local port. While FiveT's Xray is not
+/// listening on it (a reconnect, a disconnect), FiveT holds the port itself and closes every connection
+/// at once, so the apps get no internet and no other program on the Mac can take the port and receive
+/// what they send. `release()` hands it to Xray just before that starts. The unavoidable gap between the
+/// two is covered by the owner check (VPNManager.listenerPID): Xray cannot bind a port someone took.
+final class AppProxyHold {
+    static let shared = AppProxyHold()
+    private var source: DispatchSourceRead?
+    private let queue = DispatchQueue(label: "app.fivet.proxy-hold")
+
+    func take() {
+        guard source == nil else { return }
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        guard fd >= 0 else { return }
+        var yes: Int32 = 1
+        setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, socklen_t(MemoryLayout<Int32>.size))
+        var addr = sockaddr_in()
+        addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_port = in_port_t(V2RayConfig.appProxyPort).bigEndian
+        addr.sin_addr.s_addr = inet_addr("127.0.0.1")
+        let bound = withUnsafePointer(to: &addr) { p in
+            p.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) == 0 }
+        }
+        guard bound, listen(fd, 16) == 0 else {
+            close(fd)
+            Log.shared.write("apps-only: another program holds port \(V2RayConfig.appProxyPort); FiveT cannot keep it shut", level: .error)
+            return
+        }
+        let src = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
+        src.setEventHandler { let c = accept(fd, nil, nil); if c >= 0 { close(c) } }
+        src.setCancelHandler { close(fd) }
+        src.resume()
+        source = src
+    }
+
+    func release() {
+        guard let src = source else { return }
+        source = nil
+        src.cancel()
+        queue.sync {}   // the port is closed (the cancel handler ran) before Xray is started
     }
 }

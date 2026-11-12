@@ -641,23 +641,28 @@ enum MCPTools {
             guard !values.isEmpty || apps != nil else { throw RPCError(-32602, "give at least one setting to change (see get_settings)") }
             // Lowering protection from outside the app (an assistant, the command line) needs the user's yes,
             // asked by FiveT itself, so a prompt-injected assistant cannot switch it off on its own.
-            let lowering: [String] = onMain {
+            // What lowers protection, read from the settings as they are at this moment (main thread).
+            func lowering() -> [(key: String, text: String)] {
                 let st = ConnectionStore.shared
                 return values.compactMap { key, path, v in
                     guard st[keyPath: path] != v else { return nil }
                     switch (key, v) {
-                    case ("kill_switch", false): return "turn the Kill Switch off"
-                    case ("apps_only", true): return "put only the chosen apps on the VPN (the rest of the Mac stops using it)"
-                    case ("bypass_iranian_websites", true): return "send Iranian websites around the VPN"
+                    case ("kill_switch", false): return (key, "turn the Kill Switch off")
+                    case ("apps_only", true): return (key, "put only the chosen apps on the VPN (the rest of the Mac stops using it)")
+                    case ("bypass_iranian_websites", true): return (key, "send Iranian websites around the VPN")
                     default: return nil
                     }
                 }
             }
-            if !lowering.isEmpty, !userAllows(lowering.joined(separator: " and ")) {
+            let asked = onMain { lowering() }
+            if !asked.isEmpty, !userAllows(asked.map(\.text).joined(separator: " and ")) {
                 return result(["changed": [], "denied": true, "message": "The user did not allow this change in FiveT's dialog. Nothing was changed."], isError: true)
             }
-            let changed: [String] = onMain {
+            // Applied in one step that re-reads the settings: a change that lowers protection and was not
+            // in what the user allowed (the setting moved while the dialog was open) is refused, not applied.
+            let outcome: [String]? = onMain {
                 let st = ConnectionStore.shared
+                guard Set(lowering().map(\.key)).isSubset(of: Set(asked.map(\.key))) else { return nil }
                 var changed: [String] = []
                 for (key, path, v) in values where st[keyPath: path] != v {
                     st[keyPath: path] = v
@@ -667,6 +672,9 @@ enum MCPTools {
                 }
                 if let apps, apps != st.vpnApps { st.vpnApps = apps; changed.append("vpn_apps") }
                 return changed
+            }
+            guard let changed = outcome else {
+                return result(["changed": [], "denied": true, "message": "A setting changed while this request was being checked. Nothing was changed: ask again."], isError: true)
             }
             Log.shared.write("[mcp] settings changed: \(changed.isEmpty ? "nothing (already so)" : changed.joined(separator: ", "))")
             var d = onMain { settingsDict() }
