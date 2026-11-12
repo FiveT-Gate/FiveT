@@ -255,14 +255,30 @@ public sealed class ConnectionStore : IConnectionList
         _killSwitch = Json.Bool(root["killSwitch"]) ?? false;
         // "Bypass Iranian Websites" used to be set per V2Ray connection on the Mac (v2rayIranDirect): a file
         // from then means on, unless every V2Ray connection had it off.
-        var anyV2Ray = false;
-        var anyIranDirect = false;
+        var list = ReadConnections(root, out var skipped, out var anyV2Ray, out var anyIranDirect);
+        if (skipped > 0) clean = false;
+        Connections = list;
+        _bypassIran = Json.Bool(root["bypassIran"]) ?? (!anyV2Ray || anyIranDirect);
+        // Someone updating from a version without this flag has already been through the first start.
+        _welcomeShown = Json.Bool(root["welcomeShown"]) ?? list.Count > 0;
+        return clean;
+    }
+
+    /// <summary>
+    /// The connections of a connections.json or .fivet file. <paramref name="skipped"/> counts the entries that were not
+    /// connections at all (a file from a newer FiveT, say); the V2Ray flags are for the old per-connection Iran setting.
+    /// </summary>
+    private List<Connection> ReadConnections(JsonObject root, out int skipped, out bool anyV2Ray, out bool anyIranDirect)
+    {
+        skipped = 0;
+        anyV2Ray = false;
+        anyIranDirect = false;
         var list = new List<Connection>();
         if (root["connections"] is JsonArray arr)
         {
             foreach (var n in arr)
             {
-                if (n is not JsonObject o) { clean = false; continue; }
+                if (n is not JsonObject o) { skipped++; continue; }
                 var id = Guid.TryParse(Json.Str(o["id"]), out var g) ? g : Guid.NewGuid();
                 var name = Json.Str(o["name"]) ?? "Connection";
                 var c = new Connection
@@ -321,12 +337,8 @@ public sealed class ConnectionStore : IConnectionList
                 list.Add(c);
             }
         }
-        else if (root["connections"] != null) clean = false;
-        Connections = list;
-        _bypassIran = Json.Bool(root["bypassIran"]) ?? (!anyV2Ray || anyIranDirect);
-        // Someone updating from a version without this flag has already been through the first start.
-        _welcomeShown = Json.Bool(root["welcomeShown"]) ?? list.Count > 0;
-        return clean;
+        else if (root["connections"] != null) skipped++;
+        return list;
     }
 
     /// <summary>
@@ -402,46 +414,7 @@ public sealed class ConnectionStore : IConnectionList
                 ["welcomeShown"] = _welcomeShown,   // Windows only; the Mac drops it when it saves
             };
             var arr = new JsonArray();
-            foreach (var c in Connections)
-            {
-                var o = new JsonObject
-                {
-                    ["id"] = c.Id.ToString().ToUpperInvariant(),
-                    ["name"] = c.Name,
-                    ["kind"] = c.Kind.Wire(),
-                    ["host"] = c.Host,
-                    ["port"] = c.Port,
-                    ["realm"] = c.Realm,
-                    ["username"] = c.Username,
-                    ["passwordProtected"] = ProtectedSecret(c, "password", c.Password),
-                    ["totpSecretProtected"] = ProtectedSecret(c, "totpSecret", c.TotpSecret),
-                    ["otpMode"] = c.OtpMode.Wire(),
-                    ["trustedCert"] = c.TrustedCert,
-                    ["trustedCertHost"] = c.TrustedCertHost,
-                    ["trustedCertNames"] = Json.Array(c.TrustedCertNames),
-                    ["trustedCertPin"] = c.TrustedCertPin,
-                    ["pendingCert"] = c.PendingCert,
-                    ["pendingCertHost"] = c.PendingCertHost,
-                    ["pendingCertFirst"] = c.PendingCertFirst,
-                    ["pendingCertInfo"] = c.PendingCertInfo,
-                    ["pendingCertPin"] = c.PendingCertPin,
-                    ["extraConfig"] = c.ExtraConfig,
-                    ["dnsDomains"] = c.DnsDomains,
-                };
-                if (c.AcceptedOtp.Length > 0) o["acceptedOTP"] = c.AcceptedOtp;
-                // Only what the kind uses: a Forti connection carries no empty VPN fields. All four hold
-                // something secret (a private key, a user id, a password, a subscription token).
-                if (c.IsOpenVpn) o["ovpnProfileProtected"] = ProtectedSecret(c, "ovpnProfile", c.OvpnProfile);
-                if (c.IsV2Ray)
-                {
-                    o["v2rayOutboundProtected"] = ProtectedSecret(c, "v2rayOutbound", c.V2RayOutbound);
-                    o["v2rayLinkProtected"] = ProtectedSecret(c, "v2rayLink", c.V2RayLink);
-                    o["v2raySubscriptionProtected"] = ProtectedSecret(c, "v2raySubscription", c.V2RaySubscription);
-                }
-                if (c.LastConnectedAt is { } d) o["lastConnectedAt"] = Json.Iso(d);
-                if (c.LastError is { } e) o["lastError"] = e;
-                arr.Add(o);
-            }
+            foreach (var c in Connections) arr.Add(ConnectionJson(c, export: false));
             root["connections"] = arr;
             SafeFile.Replace(FilePath, Json.ToPretty(root));
             SaveProblem = null;
@@ -452,6 +425,132 @@ public sealed class ConnectionStore : IConnectionList
             SaveProblem = $"FiveT could not save connections.json ({e.Message}). Your last saved connections are still on disk; changes made since are only in memory.";
             Log.Shared.Write($"ERROR saving connections.json: {e.Message}", LogLevel.Error);
         }
+    }
+
+    /// <summary>
+    /// One connection as JSON. On disk its secrets are DPAPI text ("passwordProtected"); in a .fivet file they are plain
+    /// ("password", the Mac's layout) and the date is the number the Mac's JSONDecoder reads.
+    /// </summary>
+    private JsonObject ConnectionJson(Connection c, bool export)
+    {
+        void Put(JsonObject target, string key, string value)
+        {
+            if (export) target[key] = value;
+            else target[key + "Protected"] = ProtectedSecret(c, key, value);
+        }
+        var o = new JsonObject
+        {
+            ["id"] = c.Id.ToString().ToUpperInvariant(),
+            ["name"] = c.Name,
+            ["kind"] = c.Kind.Wire(),
+            ["host"] = c.Host,
+            ["port"] = c.Port,
+            ["realm"] = c.Realm,
+            ["username"] = c.Username,
+        };
+        Put(o, "password", c.Password);
+        Put(o, "totpSecret", c.TotpSecret);
+        o["otpMode"] = c.OtpMode.Wire();
+        o["trustedCert"] = c.TrustedCert;
+        o["trustedCertHost"] = c.TrustedCertHost;
+        o["trustedCertNames"] = Json.Array(c.TrustedCertNames);
+        o["trustedCertPin"] = c.TrustedCertPin;
+        o["pendingCert"] = c.PendingCert;
+        o["pendingCertHost"] = c.PendingCertHost;
+        o["pendingCertFirst"] = c.PendingCertFirst;
+        o["pendingCertInfo"] = c.PendingCertInfo;
+        o["pendingCertPin"] = c.PendingCertPin;
+        o["extraConfig"] = c.ExtraConfig;
+        o["dnsDomains"] = c.DnsDomains;
+        if (c.AcceptedOtp.Length > 0) o["acceptedOTP"] = c.AcceptedOtp;
+        // Only what the kind uses: a Forti connection carries no empty VPN fields. All four hold
+        // something secret (a private key, a user id, a password, a subscription token).
+        if (c.IsOpenVpn) Put(o, "ovpnProfile", c.OvpnProfile);
+        if (c.IsV2Ray)
+        {
+            Put(o, "v2rayOutbound", c.V2RayOutbound);
+            Put(o, "v2rayLink", c.V2RayLink);
+            Put(o, "v2raySubscription", c.V2RaySubscription);
+        }
+        if (c.LastConnectedAt is { } last)
+            o["lastConnectedAt"] = export ? JsonValue.Create(Backup.MacSeconds(last)) : JsonValue.Create(Json.Iso(last));
+        if (c.LastError is { } error) o["lastError"] = error;
+        return o;
+    }
+
+    /// <summary>How many saved secrets could not be decrypted on this PC (another account or PC): an export cannot hold them.</summary>
+    public int UnreadableSecretCount => _unreadableSecrets.Count;
+
+    /// <summary>
+    /// The text of a .fivet file: every connection with its secrets in plain text, and every setting that means the same on
+    /// the Mac. Not the Windows-only paths and flags (the openconnect.exe chosen here, the first-start flag, the update check).
+    /// </summary>
+    public string ExportText()
+    {
+        var root = new JsonObject
+        {
+            ["version"] = 1,
+            ["notifyOnChange"] = _notify,
+            ["verboseLogging"] = _verboseLogging,
+            ["verbosePackets"] = _verbosePackets,
+            ["autoReconnect"] = _autoReconnect,
+            ["watchdog"] = _watchdog,
+            ["killSwitch"] = _killSwitch,
+            ["bypassIran"] = _bypassIran,
+            ["mcpEnabled"] = _mcpEnabled,
+        };
+        var arr = new JsonArray();
+        foreach (var c in Connections) arr.Add(ConnectionJson(c, export: true));
+        root["connections"] = arr;
+        return Json.ToPretty(root);
+    }
+
+    /// <summary>
+    /// Reads a .fivet file (from this app or the Mac's): its settings replace this PC's, its connections are added, and one
+    /// with the id of a saved connection replaces it. Throws, changing nothing, when it is not a FiveT file or when the
+    /// saved connections cannot be copied first. Returns what happened, as a sentence for the user.
+    /// </summary>
+    public string Restore(string text)
+    {
+        if (Json.Parse(text) is not JsonObject root || root["connections"] is not JsonArray)
+            throw new InvalidDataException("This is not a FiveT settings file.");
+        _repaired.Clear();
+        var incoming = ReadConnections(root, out var skipped, out _, out _);
+        var (list, added, replaced) = Backup.Merge(Connections, incoming);
+
+        // An import can replace connections: what was saved before is kept in one copy next to the file.
+        var keptCopy = false;
+        try
+        {
+            if (File.Exists(FilePath)) { SafeFile.Replace(FilePath + ".before-import", File.ReadAllBytes(FilePath)); keptCopy = true; }
+        }
+        catch (Exception e)
+        {
+            throw new IOException($"FiveT could not keep a copy of your saved connections first ({e.Message}), so it imported nothing.");
+        }
+
+        var kill = _killSwitch;
+        var mcp = _mcpEnabled;
+        Connections = list;
+        // A setting the file does not hold stays as it is. The Mac's showNameInMenuBar and autoUpdate mean something else here.
+        _notify = Json.Bool(root["notifyOnChange"]) ?? _notify;
+        _verboseLogging = Json.Bool(root["verboseLogging"]) ?? _verboseLogging;
+        _verbosePackets = Json.Bool(root["verbosePackets"]) ?? _verbosePackets;
+        _autoReconnect = Json.Bool(root["autoReconnect"]) ?? _autoReconnect;
+        _watchdog = Json.Bool(root["watchdog"]) ?? _watchdog;
+        _killSwitch = Json.Bool(root["killSwitch"]) ?? _killSwitch;
+        _bypassIran = Json.Bool(root["bypassIran"]) ?? _bypassIran;
+        _mcpEnabled = Json.Bool(root["mcpEnabled"]) ?? _mcpEnabled;
+        Persist();
+        if (_killSwitch != kill) KillSwitchChanged?.Invoke();
+        if (_mcpEnabled != mcp) McpEnabledChanged?.Invoke(_mcpEnabled);
+        Changed?.Invoke();
+
+        if (_repaired.Count > 0) Log.Shared.Write($"repaired pasted text in the imported connection(s): {string.Join(", ", _repaired)}");
+        Log.Shared.Write($"imported a .fivet file: {added} connection(s) added, {replaced} replaced, {skipped} unreadable");
+        return $"Imported {added} new and {replaced} updated connection(s) and the settings."
+            + (skipped > 0 ? $" {skipped} could not be read (made by a newer FiveT?)." : "")
+            + (replaced > 0 && keptCopy ? " The connections you had before are kept in connections.json.before-import." : "");
     }
 
     /// <summary>Plain-words note when the last save failed (else null). The file on disk is the previous good one.</summary>
