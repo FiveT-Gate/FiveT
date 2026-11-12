@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>FiveT Installer Background</title>
+<!--
+  The disk image window's background (Tools/make-dmg-background.sh renders it to background.png and
+  background@2x.png). 660 x 440: the last 40 points sit under the window edge. Finder draws the icons
+  (112 pt) centred at FiveT (160,165), Applications (500,165), Read Me First (590,318), as in
+  settings.py, and writes their names on the plates below them: white in Dark Mode, black in Light
+  Mode, so the plates stay mid-tone (luminance about 0.18) and empty.
+-->
+<style>
+  :root {
+    --bg: #0b0b0c;
+    --ivory: #ece7dc;
+    --soft: #bdb6aa;
+    --note: #9d968a;
+    --amber: #d9a54a;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    width: 660px; height: 440px; overflow: hidden; position: relative;
+    background: radial-gradient(ellipse 360px 200px at 50% 38%, rgba(217,165,74,.05), transparent 72%), var(--bg);
+    font-family: -apple-system, system-ui, sans-serif;
+    color: var(--ivory);
+  }
+  .abs { position: absolute; }
+
+  /* what to do, then the wink */
+  .title { left: 0; width: 660px; top: 30px; text-align: center; }
+  .title .do { display: block; font: 400 27px/1.1 Baskerville, "ui-serif", Georgia, serif; }
+  .title .wink { display: block; margin-top: 6px; font: italic 400 19px/1.1 Baskerville, "ui-serif", Georgia, serif; color: var(--amber); }
+
+  /* under the arrow */
+  .note {
+    left: 250px; width: 160px; top: 184px; text-align: center;
+    font: 700 15px/1 "Bradley Hand", "Noteworthy", cursive; color: var(--note);
+  }
+
+  /* first open */
+  .first { left: 110px; width: 440px; top: 300px; text-align: center; }
+  .first .quip { display: block; font: italic 400 19px/1.1 Baskerville, "ui-serif", Georgia, serif; }
+  .first .how { display: block; margin-top: 8px; font: 400 13px/1.3 -apple-system, system-ui, sans-serif; color: var(--soft); }
+  .first .how b { color: var(--amber); font-weight: 600; }
+
+  /* name plates */
+  .plate {
+    height: 28px; border-radius: 7px;
+    background: linear-gradient(to bottom, #997840, #8a6a33);
+    box-shadow: 0 1px 0 rgba(255,236,190,.25) inset, 0 2px 6px rgba(0,0,0,.5);
+  }
+</style>
+</head>
+<body>
+  <!-- the way in: a straight dotted line at icon height -->
+  <svg class="abs" style="left:0;top:0" width="660" height="440" viewBox="0 0 660 440" aria-hidden="true">
+    <path d="M 238 165 L 420 165" fill="none" stroke="#d9a54a" stroke-width="3" stroke-linecap="round" stroke-dasharray="0 9"/>
+    <path d="M 422 156 L 432 165 L 422 174" fill="none" stroke="#d9a54a" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>
+
+  <div class="abs title">
+    <span class="do">Drag FiveT into Applications.</span>
+    <span class="wink">Nobody saw anything.</span>
+  </div>
+
+  <div class="abs note">walk, don’t run</div>
+
+  <div class="abs first">
+    <span class="quip">He’s shy, not dangerous.</span>
+    <span class="how">First open: System Settings › Privacy &amp; Security › <b>Open Anyway</b>.</span>
+  </div>
+
+  <!-- plates under FiveT (160,235), Applications (500,235), Read Me First (590,388) -->
+  <div class="abs plate" style="left:108px;top:221px;width:104px"></div>
+  <div class="abs plate" style="left:432px;top:221px;width:136px"></div>
+  <div class="abs plate" style="left:524px;top:374px;width:132px"></div>
+</body>
+</html>
