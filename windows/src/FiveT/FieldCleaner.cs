@@ -46,6 +46,11 @@ public static class FieldCleaner
     public static (string Host, int? Port) Gateway(string? text)
     {
         var line = Line(text);
+        // Zero-width and direction marks come along when a name is copied from a web page or a PDF; DNS
+        // answers "No such host is known" for them. ZWNJ/ZWJ stay: some scripts need them inside a name.
+        if (line.Any(IsHidden)) line = new string(line.Where(ch => !IsHidden(ch)).ToArray()).Trim();
+        // FortiClient takes "gw1.example.com;gw2.example.com" (failover) and connects to the first.
+        if (line.Contains(';')) line = line[..line.IndexOf(';')].Trim();
         if (line.Length == 0) return ("", null);
         int? port = null;
 
@@ -86,6 +91,20 @@ public static class FieldCleaner
             }
         }
         return (line.Trim(), port);
+    }
+
+    private static bool IsHidden(char ch) =>
+        ch is not ('‌' or '‍') && char.GetUnicodeCategory(ch) == System.Globalization.UnicodeCategory.Format;
+
+    /// <summary>
+    /// The name as DNS takes it: an international name (münchen.de) goes as punycode. .NET and openconnect
+    /// hand the text to the resolver as it is and get "No such host is known"; FortiClient converts it.
+    /// </summary>
+    public static string AsciiHost(string host)
+    {
+        if (host.All(ch => ch < 128)) return host;
+        try { return new System.Globalization.IdnMapping().GetAscii(host); }
+        catch (ArgumentException) { return host; }   // not a valid name: the resolver's own error says so
     }
 
     private static int? ParsePort(string s) =>

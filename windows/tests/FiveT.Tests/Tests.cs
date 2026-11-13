@@ -47,6 +47,30 @@ public class PastedFields
     }
 
     [Fact]
+    public void Gateway_keeps_the_first_of_a_failover_list_and_drops_hidden_characters()
+    {
+        Assert.Equal(("gw1.example.com", (int?)null), FieldCleaner.Gateway("gw1.example.com;gw2.example.com"));
+        Assert.Equal(("gw1.example.com", 8443), FieldCleaner.Gateway("gw1.example.com:8443; gw2.example.com"));
+        Assert.Equal(("vpn.example.com", (int?)null), FieldCleaner.Gateway("​vpn.example.com​﻿"));
+    }
+
+    [Fact]
+    public void An_international_name_goes_to_DNS_as_punycode()
+    {
+        Assert.Equal("xn--mnchen-3ya.de", FieldCleaner.AsciiHost("münchen.de"));
+        Assert.Equal("vpn.example.com", FieldCleaner.AsciiHost("vpn.example.com"));
+        Assert.Equal("203.0.113.7", FieldCleaner.AsciiHost("203.0.113.7"));
+    }
+
+    [Fact]
+    public void A_saved_gateway_with_a_port_in_it_is_split()
+    {
+        var c = new Connection { Host = "gw1.example.com:10443;gw2.example.com", Port = 443 };
+        Assert.Equal(new[] { "gateway" }, c.CleanPastedFields());
+        Assert.Equal(("gw1.example.com", 10443), (c.Host, c.Port));
+    }
+
+    [Fact]
     public void A_saved_connection_is_repaired_and_valid_text_is_left_alone()
     {
         var c = new Connection { Name = "Office\n", Host = "\nremote vpn.example.com 443\n", Username = "ali reza", Password = "pa ss\n", TotpSecret = "JBSW Y3DP\nEHPK 3PXP" };
