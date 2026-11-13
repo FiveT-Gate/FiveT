@@ -4,7 +4,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
-    <Version>2.3.0</Version>
+    <Version>2.3.1</Version>
     <Authors>FiveT</Authors>
     <Company>FiveT</Company>
     <Product>FiveT</Product>

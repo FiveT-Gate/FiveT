@@ -527,7 +527,7 @@ public sealed partial class VpnManager
     private static string UrlOf(Connection c)
     {
         var realm = c.Realm.Trim();
-        return $"https://{c.Host.Trim()}:{c.Port}" + (realm.Length > 0 ? "/" + realm : "");
+        return $"https://{FieldCleaner.AsciiHost(c.Host.Trim())}:{c.Port}" + (realm.Length > 0 ? "/" + realm : "");
     }
 
     /// <summary>
@@ -620,7 +620,7 @@ public sealed partial class VpnManager
             Phase = VpnPhase.Connecting, ConnectionId = c.Id, ConnectionName = c.Name,
             Detail = s.ReconnectAttempt > 0 ? $"Reconnecting (try {s.ReconnectAttempt})…" : "Checking the gateway's certificate…",
         });
-        var host = c.Host.Trim();
+        var host = FieldCleaner.AsciiHost(c.Host.Trim());
         var port = c.Port;
         var ofv = Setup.OpenconnectPath!;
         var url = UrlOf(c);

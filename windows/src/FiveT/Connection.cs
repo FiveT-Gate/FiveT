@@ -168,7 +168,9 @@ public sealed class Connection
         }
         static string OneLine(string v) => v.Any(FieldCleaner.IsNewline) ? FieldCleaner.Line(v) : v;
         Name = Clean("name", Name, OneLine(Name));
-        Host = Clean("gateway", Host, FieldCleaner.CleanedHost(Host));
+        var (host, hostPort) = FieldCleaner.Gateway(Host);
+        if (host != Host && hostPort is { } p) Port = p;   // "vpn.example.com:10443" saved whole: the port was meant
+        Host = Clean("gateway", Host, host);
         Realm = Clean("realm", Realm, OneLine(Realm));
         Username = Clean("username", Username, OneLine(Username));
         Password = Clean("password", Password, Password.Trim('\n', '\r', '\u0085', '\u2028', '\u2029'));
