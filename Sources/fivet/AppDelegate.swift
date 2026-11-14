@@ -491,11 +491,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     private func menuSymbol(_ name: String) -> NSImage? {
         let cfg = NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
         guard let src = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(cfg) else { return nil }
+        // A template picture inside a menu title is drawn black, so it is painted in the text colour here; the
+        // handler runs at draw time, so labelColor follows the menu's look (white on a dark menu, like the gear).
         let img = NSImage(size: src.size, flipped: false) { rect in
             src.draw(in: rect)
+            NSColor.labelColor.set()
+            rect.fill(using: .sourceAtop)
             return true
         }
-        img.isTemplate = true
         return img
     }
 
