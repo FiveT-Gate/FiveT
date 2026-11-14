@@ -591,7 +591,10 @@ enum V2RayConfig {
     /// per FiveT launch: the same for every run of that launch, so an app started through it finds the
     /// proxy again after a reconnect, and a program on the Mac cannot sit on a well-known port first.
     /// VPNManager still checks, before it says "connected", that the listener is its own Xray.
-    static let appProxyPort: Int = {
+    static let appProxyPort: Int = freePort()
+
+    /// A TCP port on 127.0.0.1 that is free right now.
+    static func freePort() -> Int {
         let fd = socket(AF_INET, SOCK_STREAM, 0)
         guard fd >= 0 else { return Int.random(in: 20000..<60000) }
         defer { close(fd) }
@@ -604,7 +607,27 @@ enum V2RayConfig {
             p.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, len) == 0 && getsockname(fd, $0, &len) == 0 }
         }
         return bound ? Int(UInt16(bigEndian: addr.sin_port)) : Int.random(in: 20000..<60000)
-    }()
+    }
+
+    /// Smart Connect's background check: nothing but a local SOCKS proxy on `port` that sends everything to `c`'s
+    /// server. No tunnel and no routes, so the Mac's own connection (and a VPN that is up) stays as it is.
+    /// `interface` (the Wi-Fi or Ethernet card) keeps the check off a VPN that is up, so it measures the server itself.
+    static func forProbe(_ c: Connection, port: Int, interface: String?) throws -> String {
+        guard var proxy = object(c.v2rayOutbound),
+              let proto = proxy["protocol"] as? String, protocols.contains(proto.lowercased()) else {
+            throw Failure("its server settings are missing")
+        }
+        proxy["mux"] = nil
+        var st = proxy["streamSettings"] as? [String: Any] ?? [:]
+        st["sockopt"] = interface.map { ["interface": $0] }
+        if var tls = st["tlsSettings"] as? [String: Any] { tls["allowInsecure"] = nil; st["tlsSettings"] = tls }
+        proxy["streamSettings"] = st
+        return json([
+            "log": ["loglevel": "warning"],
+            "inbounds": [["protocol": "socks", "listen": "127.0.0.1", "port": port, "settings": ["auth": "noauth", "udp": false] as [String: Any]] as [String: Any]],
+            "outbounds": [proxy],
+        ] as [String: Any])
+    }
 
     static func forLaunch(_ c: Connection, tun: String?, localDNS: [String], direct: [String],
                           serverIPs: [String: [String]] = [:], verbose: Bool) throws -> String {

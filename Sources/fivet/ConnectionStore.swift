@@ -25,6 +25,9 @@ final class ConnectionStore: ObservableObject {
     /// started that way has no internet at all while the VPN is down.
     @Published var appsOnly: Bool { didSet { persist() } }
     @Published var vpnApps: [String] { didSet { persist() } }
+    /// Smart Connect: the VPNs the user switched off (saved connections and the built-in rows, by id). Off rather than
+    /// on, so a VPN added later takes part without a visit to the tab.
+    @Published var smartOff: Set<UUID> { didSet { persist() } }
     /// V2Ray and Outline: .ir names and Iranian addresses skip the server and go direct.
     @Published var bypassIran: Bool { didSet { persist() } }
     /// Settings → MCP: run the MCP server so assistants can control the app.
@@ -48,6 +51,7 @@ final class ConnectionStore: ObservableObject {
         var autoFailover: Bool = false
         var appsOnly: Bool = false
         var vpnApps: [String] = []
+        var smartOff: Set<UUID> = []
         var bypassIran: Bool?   // nil: a file from before this was one setting for all connections
         var mcpEnabled: Bool = true
         var autoUpdate: Bool = true
@@ -56,7 +60,7 @@ final class ConnectionStore: ObservableObject {
         var unreadable = 0
 
         private enum CodingKeys: String, CodingKey {
-            case version, showNameInMenuBar, verboseLogging, verbosePackets, autoReconnect, watchdog, killSwitch, autoFailover, appsOnly, vpnApps, bypassIran, mcpEnabled, autoUpdate, connections
+            case version, showNameInMenuBar, verboseLogging, verbosePackets, autoReconnect, watchdog, killSwitch, autoFailover, appsOnly, vpnApps, smartOff, bypassIran, mcpEnabled, autoUpdate, connections
         }
         /// One list entry that decodes to nil instead of failing the whole file.
         private struct Lossy: Decodable {
@@ -77,6 +81,7 @@ final class ConnectionStore: ObservableObject {
             autoFailover = try c.decodeIfPresent(Bool.self, forKey: .autoFailover) ?? false
             appsOnly = try c.decodeIfPresent(Bool.self, forKey: .appsOnly) ?? false
             vpnApps = try c.decodeIfPresent([String].self, forKey: .vpnApps) ?? []
+            smartOff = try c.decodeIfPresent(Set<UUID>.self, forKey: .smartOff) ?? []
             bypassIran = try c.decodeIfPresent(Bool.self, forKey: .bypassIran)
             mcpEnabled = try c.decodeIfPresent(Bool.self, forKey: .mcpEnabled) ?? true
             autoUpdate = try c.decodeIfPresent(Bool.self, forKey: .autoUpdate) ?? true
@@ -137,6 +142,7 @@ final class ConnectionStore: ObservableObject {
         autoFailover = loaded.autoFailover
         appsOnly = loaded.appsOnly
         vpnApps = loaded.vpnApps
+        smartOff = loaded.smartOff
         // It used to be set per connection: on, unless every V2Ray connection had it off.
         let v2ray = loaded.connections.filter(\.isV2Ray)
         bypassIran = loaded.bypassIran ?? (v2ray.isEmpty || v2ray.contains(where: \.v2rayIranDirect))
@@ -182,6 +188,7 @@ final class ConnectionStore: ObservableObject {
         f.autoFailover = autoFailover
         f.appsOnly = appsOnly
         f.vpnApps = vpnApps
+        f.smartOff = smartOff
         f.bypassIran = bypassIran
         f.mcpEnabled = mcpEnabled
         f.autoUpdate = autoUpdate
@@ -234,6 +241,7 @@ final class ConnectionStore: ObservableObject {
         autoFailover = f.autoFailover
         appsOnly = f.appsOnly
         vpnApps = f.vpnApps
+        smartOff = f.smartOff
         bypassIran = f.bypassIran ?? bypassIran
         mcpEnabled = f.mcpEnabled
         autoUpdate = f.autoUpdate

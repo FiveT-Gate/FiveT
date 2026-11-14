@@ -102,6 +102,31 @@ struct SettingsPage: View {
 // MARK: - Connections
 
 /// The connections of one tab: Forti (FortiGate) or VPN (OpenVPN and V2Ray).
+/// The face of a square button (+, −, import): a symbol, no text. Apple's HIG asks for about 10 pt of padding between an
+/// image button's symbol and its edges, because the edges are the click target: 14 pt symbol, 32 × 28 pt target.
+/// Lights up under the pointer, and `SquareButtonStyle` darkens it while it is pressed (the HIG wants a press state).
+private struct SquareButtonLabel: View {
+    let symbol: String
+    @ViewState private var hovering = false
+    var body: some View {
+        Image(systemName: symbol)
+            .font(.system(size: 14, weight: .medium))
+            .frame(width: 32, height: 28)
+            .background(hovering ? Color.primary.opacity(0.10) : .clear, in: RoundedRectangle(cornerRadius: 6))
+            .contentShape(Rectangle())
+            .onHover { hovering = $0 }
+    }
+}
+
+private struct SquareButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var enabled
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .opacity(enabled ? 1 : 0.35)
+            .background(configuration.isPressed ? Color.primary.opacity(0.2) : .clear, in: RoundedRectangle(cornerRadius: 6))
+    }
+}
+
 struct ConnectionsTab: View {
     /// .fortinet for the Forti tab; anything else for the VPN tab.
     let kind: VPNKind
@@ -119,6 +144,8 @@ struct ConnectionsTab: View {
     @ViewState private var importing = false
 
     private var isVPNTab: Bool { kind != .fortinet }
+    /// The rows that are not saved connections: Smart Connect and the built-in services.
+    private static func isBuiltInRow(_ id: UUID) -> Bool { id == SmartConnect.rowID || WindscribeMax.rowIDs.contains(id) }
     private var listTab: SettingsTab { isVPNTab ? .openvpn : .connections }
 
     private var shown: [Connection] { store.connections.filter { $0.isOtherVPN == isVPNTab } }
@@ -280,20 +307,38 @@ struct ConnectionsTab: View {
         }
     }
 
+    private func sidebarHeader(_ title: String) -> some View {
+        Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary).listRowSeparator(.hidden)
+    }
+
+    private func row(_ c: Connection) -> some View {
+        HStack {
+            Circle().fill(dotColor(c)).frame(width: 8, height: 8)
+            Text(c.name.isEmpty ? "Untitled" : c.name).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
+            if isVPNTab {
+                Text(c.isV2Ray ? V2RayConfig.kindLabel(c) : "OpenVPN").font(.subheadline).foregroundStyle(.secondary).fixedSize()
+            }
+        }
+        .padding(.vertical, 3)   // a little air between the rows of the Forti and VPN lists
+        .listRowSeparator(.hidden)
+        .tag(c.id)
+    }
+
     var body: some View {
         HStack(spacing: 0) {
             VStack(spacing: 0) {
                 List(selection: $selection) {
-                    ForEach(shown) { c in
-                        HStack {
-                            Circle().fill(dotColor(c)).frame(width: 8, height: 8)
-                            Text(c.name.isEmpty ? "Untitled" : c.name).lineLimit(1)
-                            if isVPNTab {
-                                Spacer()
-                                Text(c.isV2Ray ? V2RayConfig.kindLabel(c) : "OpenVPN").font(.caption2).foregroundStyle(.secondary).fixedSize()
-                            }
-                        }
-                        .tag(c.id)
+                    if isVPNTab {
+                        // Smart Connect heads the list, above My VPNs: a built-in row, never saved, so it cannot be removed.
+                        SmartConnectRow().listRowSeparator(.hidden).tag(SmartConnect.rowID)
+                        // Headers are plain rows, not Section headers: a List pins the first Section header to the top
+                        // and draws a line under it, which "Built in" (further down) never had.
+                        if !shown.isEmpty { sidebarHeader("My VPNs").padding(.top, 12); ForEach(shown) { row($0) } }
+                        // Built in: not a saved connection, so it is always here and cannot be removed.
+                        sidebarHeader("Built in").padding(.top, 12)
+                        ForEach(WindscribeMax.all, id: \.rowID) { WindscribeMaxRow(m: $0).listRowSeparator(.hidden).tag($0.rowID) }
+                    } else {
+                        ForEach(shown) { row($0) }
                     }
                 }
                 .onPasteCommand(of: [.plainText, .fileURL]) { _ in if isVPNTab { pasteFromClipboard() } }
@@ -303,7 +348,9 @@ struct ConnectionsTab: View {
                     hasOutline = OutlineApp.installed
                 }
                 Divider()
-                HStack(spacing: 4) {
+                // Square buttons (Apple HIG): symbols only, one size, in one row under the list they act on (as in Finder
+                // and Mail's sidebars): + adds, − removes the selected one, the last one imports.
+                HStack(spacing: 0) {
                     if isVPNTab {
                         // A VPN connection is its profile or link: there is nothing to fill in without one.
                         Menu {
@@ -318,8 +365,8 @@ struct ConnectionsTab: View {
                                      title: "Import OpenVPN Profile")
                             }
                             .disabled(!hasOpenVPNConnectProfiles)
-                        } label: { Image(systemName: importing ? "ellipsis" : "plus") }
-                        .menuStyle(.borderlessButton)
+                        } label: { SquareButtonLabel(symbol: importing ? "ellipsis" : "plus") }
+                        .menuStyle(.button)
                         .menuIndicator(.hidden)
                         .fixedSize()
                         .disabled(importing)
@@ -328,14 +375,14 @@ struct ConnectionsTab: View {
                         Button {
                             let c = store.add()
                             selection = c.id
-                        } label: { Image(systemName: "plus") }
+                        } label: { SquareButtonLabel(symbol: "plus") }
                         .help("Add a connection")
                     }
                     Button {
                         if let s = selection { pendingRemoval = store.connection(id: s) }
-                    } label: { Image(systemName: "minus") }
-                    .disabled(selection == nil)
-                    Spacer()
+                    } label: { SquareButtonLabel(symbol: "minus") }
+                    .disabled(selection == nil || selection.map(Self.isBuiltInRow) == true)
+                    .help(selection.map(Self.isBuiltInRow) == true ? "Built in: it cannot be removed" : "Remove the selected connection")
                     if !isVPNTab {
                         Menu {
                             Button("From FortiClient on this Mac") {
@@ -343,15 +390,16 @@ struct ConnectionsTab: View {
                             }
                             .disabled(!FortiClientImport.localStoreExists)
                             Button("From a FortiClient backup file…") { importFromFile() }
-                        } label: { Image(systemName: "square.and.arrow.down") }
-                        .menuStyle(.borderlessButton)
+                        } label: { SquareButtonLabel(symbol: "square.and.arrow.down") }
+                        .menuStyle(.button)
                         .menuIndicator(.hidden)
                         .fixedSize()
                         .help("Import connections from FortiClient: names, gateways and user names (passwords are never included)")
                     }
                 }
-                .buttonStyle(.borderless)
-                .padding(6)
+                .buttonStyle(SquareButtonStyle())
+                .padding(.horizontal, 8).padding(.vertical, 4)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(width: 190)
             .alert(importTitle, isPresented: Binding(get: { importMessage != nil }, set: { if !$0 { importMessage = nil } })) {
@@ -372,7 +420,11 @@ struct ConnectionsTab: View {
 
             Divider()
 
-            if let id = selection, shown.contains(where: { $0.id == id }) {
+            if isVPNTab, selection == SmartConnect.rowID {
+                SmartConnectTab()
+            } else if isVPNTab, let service = WindscribeMax.service(for: selection) {
+                WindscribeMaxPanel(m: service)
+            } else if let id = selection, shown.contains(where: { $0.id == id }) {
                 // A fresh form per connection: a password revealed with Touch ID for one connection
                 // must not stay revealed for the next one selected.
                 ConnectionForm(connection: store.binding(for: id))
@@ -390,7 +442,7 @@ struct ConnectionsTab: View {
         .onAppear {
             if selection == nil {
                 let kept = SettingsRouter.shared.picked[listTab]
-                selection = shown.contains(where: { $0.id == kept }) ? kept : shown.first?.id
+                selection = shown.contains(where: { $0.id == kept }) || (isVPNTab && kept.map(Self.isBuiltInRow) == true) ? kept : shown.first?.id
             }
         }
         .onChange(of: selection) { SettingsRouter.shared.picked[listTab] = $0 }
@@ -414,6 +466,26 @@ struct ConnectionForm: View {
     @ViewState private var revealError: String?
     @ViewState private var qrMessage: String?
     @ViewState private var qrFailed = false
+    /// The Forti form's "Advanced" group (DNS, gateway certificate, extra options) is folded until clicked.
+    @ViewState private var advancedOpen = false
+    /// The split-DNS fields: their own "DNS" section for OpenVPN, inside "Advanced" for Forti.
+    @ViewBuilder private var dnsFields: some View {
+        TextField("DNS domains for split DNS", text: $connection.dnsDomains)
+        Text("While connected, look-ups for these domains go to this VPN's DNS servers even when another VPN, or a second tunnel, owns the Mac's default DNS (FiveT writes /etc/resolver/<domain> and removes it on disconnect). The DNS suffixes the \(connection.isOpenVPN ? "server" : "gateway") pushes are added automatically; list any other internal domains here. Needs the helper from the General tab.")
+            .font(.subheadline).foregroundStyle(.secondary)
+        if let sd = mine?.splitDNS {
+            LabeledContent("Split DNS") {
+                Text("\(sd.state)\(sd.detail.isEmpty ? "" : " — " + sd.detail)")
+                    .font(.subheadline).foregroundStyle(sd.state == "active" ? .green : .orange)
+            }
+        }
+        if let n = mine?.network, !n.interface.isEmpty {
+            LabeledContent("Tunnel") {
+                Text("\(n.interface) \(n.tunnelIP)   DNS \(n.dnsServers.joined(separator: ", "))   \(n.routes.count) routes")
+                    .font(.subheadline).textSelection(.enabled)
+            }
+        }
+    }
     /// The secret before a paste, put back when a pasted link cannot be used.
     @ViewState private var lastGoodSecret = ""
     @ViewState private var profileMessage: String?
@@ -627,7 +699,7 @@ struct ConnectionForm: View {
             LabeledContent("Server") { Text("\(connection.host):" + String(connection.port)).textSelection(.enabled) }   // String: a number in Text gets a thousands separator ("8,388")
             LabeledContent("Type") { Text(V2RayConfig.summary(connection.v2rayOutbound)) }
             Text("All of the Mac's traffic goes through this server, and names are looked up through it too. Your local network always goes direct, and so do Iranian sites while Bypass Iranian Websites is on (Settings → General).")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.subheadline).foregroundStyle(.secondary)
             if !connection.v2raySubscription.isEmpty {
                 LabeledContent("Subscription") {
                     HStack {
@@ -650,7 +722,7 @@ struct ConnectionForm: View {
             if !connection.v2rayLink.isEmpty {
                 HStack {
                     Text("The link holds this server's ID or password: share it only with people who may use the server.")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.subheadline).foregroundStyle(.secondary)
                     Spacer()
                     Button("Copy Link") {
                         NSPasteboard.general.clearContents()
@@ -659,7 +731,7 @@ struct ConnectionForm: View {
                 }
             }
             if let m = profileMessage {
-                Text(m).font(.caption).foregroundStyle(profileFailed ? Color.red : Color.secondary)
+                Text(m).font(.subheadline).foregroundStyle(profileFailed ? Color.red : Color.secondary)
             }
         }
     }
@@ -682,215 +754,263 @@ struct ConnectionForm: View {
                 }
             }
             HStack {
-                Text("Certificates and keys are inside the profile.").font(.caption).foregroundStyle(.secondary)
+                Text("Certificates and keys are inside the profile.").font(.subheadline).foregroundStyle(.secondary)
                 Spacer()
                 Button("Replace Profile…") { replaceProfile() }
             }
             if let m = profileMessage {
-                Text(m).font(.caption).foregroundStyle(profileFailed ? Color.red : Color.secondary)
+                Text(m).font(.subheadline).foregroundStyle(profileFailed ? Color.red : Color.secondary)
             }
         }
     }
 
     var body: some View {
         refreshOVPNCacheIfNeeded()
-        return Form {
-            if connection.isV2Ray {
-                v2raySection
-            } else if connection.isOpenVPN {
-                openVPNSection
-            } else {
-                Section("Gateway") {
-                    TextField("Name", text: $connection.name)
-                    TextField("Remote gateway (IP or host name)", text: $connection.host)
-                    TextField("Port", value: $connection.port, formatter: Self.portFormatter)
-                    TextField("Realm (optional, the part after the slash)", text: $connection.realm)
+        return VStack(spacing: 0) {
+            header
+            Form {
+                if connection.isV2Ray {
+                    v2raySection
+                } else if connection.isOpenVPN {
+                    openVPNSection
+                } else {
+                    Section("Gateway") {
+                        TextField("Name", text: $connection.name)
+                        TextField("Remote gateway (IP or host name)", text: $connection.host)
+                        TextField("Port", value: $connection.port, formatter: Self.portFormatter)
+                        TextField("Realm (optional, the part after the slash)", text: $connection.realm)
+                    }
                 }
-            }
-            if connection.isV2Ray {
-                // No login: the ID or password is part of the server's config.
-            } else if connection.isOpenVPN && !ovpnNeedsLogin {
+                if connection.isV2Ray {
+                    // No login: the ID or password is part of the server's config.
+                } else if connection.isOpenVPN && !ovpnNeedsLogin {
+                    Section("Login") {
+                        Text("This profile logs in with the certificate inside it: no username or password.")
+                            .font(.subheadline).foregroundStyle(.secondary)
+                    }
+                } else {
                 Section("Login") {
-                    Text("This profile logs in with the certificate inside it: no username or password.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-            } else {
-            Section("Login") {
-                TextField("Username", text: $connection.username)
-                HStack {
-                    if showPassword {
-                        TextField("Password (static part)", text: $connection.password)
-                    } else {
-                        SecureField("Password (static part)", text: $connection.password)
-                    }
-                    // Nothing to show in an empty field: the button appears once there is.
-                    if !connection.password.isEmpty {
-                        Button(showPassword ? "Hide" : "Show…") {
-                            if showPassword { showPassword = false; return }
-                            LocalAuth.confirm("show the password") { ok, why in showPassword = ok; revealError = why }
-                        }
-                    }
-                }
-                Picker("One-time code", selection: $connection.otpMode) {
-                    ForEach(OTPMode.allCases) { Text($0.label).tag($0) }
-                }
-                if connection.usesTOTP {
-                    Text("Gateways differ: some want the 6-digit code typed right after the password, others ask for it in a second step. When a login is rejected, FiveT retries once the other way and keeps the one that works.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                if connection.usesTOTP {
+                    TextField("Username", text: $connection.username)
                     HStack {
-                        if showSecret {
-                            TextField("TOTP secret", text: $connection.totpSecret)
-                                .font(.system(.body, design: .monospaced))
+                        if showPassword {
+                            TextField("Password (static part)", text: $connection.password)
                         } else {
-                            SecureField("TOTP secret", text: $connection.totpSecret)
+                            SecureField("Password (static part)", text: $connection.password)
                         }
-                        if !connection.totpSecret.isEmpty {
-                            Button(showSecret ? "Hide" : "Show…") {
-                                if showSecret { showSecret = false; return }
-                                LocalAuth.confirm("show the TOTP secret") { ok, why in showSecret = ok; revealError = why }
+                        // Nothing to show in an empty field: the button appears once there is.
+                        if !connection.password.isEmpty {
+                            Button(showPassword ? "Hide" : "Show…") {
+                                if showPassword { showPassword = false; return }
+                                LocalAuth.confirm("show the password") { ok, why in showPassword = ok; revealError = why }
                             }
                         }
                     }
-                    // Pasting an otpauth:// link (what a QR code holds) into the field takes the secret
-                    // out of it; a link FiveT cannot use puts the previous secret back.
-                    .onChange(of: connection.totpSecret) { text in
-                        guard text.range(of: "otpauth(-migration)?:", options: [.regularExpression, .caseInsensitive]) != nil else {
-                            lastGoodSecret = text
-                            return
+                    Picker("One-time code", selection: $connection.otpMode) {
+                        ForEach(OTPMode.allCases) { Text($0.label).tag($0) }
+                    }
+                    if connection.otpMode == .separate {   // no note under "Append TOTP code to password"
+                        Text("Gateways differ: some want the 6-digit code typed right after the password, others ask for it in a second step. When a login is rejected, FiveT retries once the other way and keeps the one that works.")
+                            .font(.subheadline).foregroundStyle(.secondary)
+                    }
+                    if connection.usesTOTP {
+                        HStack {
+                            if showSecret {
+                                TextField("TOTP secret", text: $connection.totpSecret)
+                                    .font(.system(.body, design: .monospaced))
+                            } else {
+                                SecureField("TOTP secret", text: $connection.totpSecret)
+                            }
+                            if !connection.totpSecret.isEmpty {
+                                Button(showSecret ? "Hide" : "Show…") {
+                                    if showSecret { showSecret = false; return }
+                                    LocalAuth.confirm("show the TOTP secret") { ok, why in showSecret = ok; revealError = why }
+                                }
+                            }
                         }
-                        // Only a link that is the whole field is read. Pasted next to the old secret,
-                        // the two run together ("…secret=NEWOLD") and no one could tell where the new
-                        // secret ends: then the old one is put back and nothing is guessed.
-                        let t = text.trimmed
-                        let whole = t.range(of: "^otpauth(-migration)?:", options: [.regularExpression, .caseInsensitive]) != nil
-                            && (lastGoodSecret.isEmpty || !t.hasSuffix(lastGoodSecret))
-                        guard whole else {
-                            connection.totpSecret = lastGoodSecret
-                            qrFailed = true
-                            qrMessage = "To import a link, paste it into an empty secret field (select what is in it first), or use Import QR Code."
-                            return
+                        // Pasting an otpauth:// link (what a QR code holds) into the field takes the secret
+                        // out of it; a link FiveT cannot use puts the previous secret back.
+                        .onChange(of: connection.totpSecret) { text in
+                            guard text.range(of: "otpauth(-migration)?:", options: [.regularExpression, .caseInsensitive]) != nil else {
+                                lastGoodSecret = text
+                                return
+                            }
+                            // Only a link that is the whole field is read. Pasted next to the old secret,
+                            // the two run together ("…secret=NEWOLD") and no one could tell where the new
+                            // secret ends: then the old one is put back and nothing is guessed.
+                            let t = text.trimmed
+                            let whole = t.range(of: "^otpauth(-migration)?:", options: [.regularExpression, .caseInsensitive]) != nil
+                                && (lastGoodSecret.isEmpty || !t.hasSuffix(lastGoodSecret))
+                            guard whole else {
+                                connection.totpSecret = lastGoodSecret
+                                qrFailed = true
+                                qrMessage = "To import a link, paste it into an empty secret field (select what is in it first), or use Import QR Code."
+                                return
+                            }
+                            // The clipboard held the link (and every secret of an export): emptied once it
+                            // is imported, as Paste Screenshot does.
+                            importQR(text: t, restoring: lastGoodSecret, clipboard: NSPasteboard.general.changeCount)
                         }
-                        // The clipboard held the link (and every secret of an export): emptied once it
-                        // is imported, as Paste Screenshot does.
-                        importQR(text: t, restoring: lastGoodSecret, clipboard: NSPasteboard.general.changeCount)
                     }
-                }
-                // Always here, even before a one-time-code mode is chosen: whoever holds the QR code
-                // their IT team sent should not have to know about modes first.
-                HStack {
-                    Text(connection.usesTOTP ? "Secret from a QR code" : "One-time code from a QR code")
-                    Spacer()
-                    Menu {
-                        Button("Paste Screenshot") { importQRFromClipboard() }
-                        Button("Choose Image…") { importQRFromFile() }
-                    } label: {
-                        Label("Import QR Code", systemImage: "qrcode")
-                    }
-                    .fixedSize()
-                }
-                .help("Reads the one-time-code secret from a QR code: a screenshot of it (⌃⇧⌘4 copies one), an image file, a Google Authenticator export, or an otpauth:// link. You can also drop the picture on this row.")
-                .onDrop(of: [.fileURL, .image], isTargeted: nil) { providers in importQR(dropped: providers) }
-                if let m = qrMessage {
-                    Text(m).font(.caption).foregroundStyle(qrFailed ? Color.red : Color.secondary)
-                } else if connection.usesTOTP && connection.totpSecret.isEmpty {
-                    Text("Type or paste the secret, or import it from the setup QR code or a Google Authenticator export.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                // No code (and no "not valid Base32" warning) before a secret is entered.
-                if connection.usesTOTP && !connection.totpSecret.isEmpty { TOTPPreview(secret: connection.totpSecret, tab: .of(connection)) }
-                if let e = revealError {
-                    Text(e).font(.caption).foregroundStyle(.red)
-                }
-            }
-            }
-            if !connection.isV2Ray {
-            Section("DNS") {
-                TextField("DNS domains for split DNS", text: $connection.dnsDomains)
-                Text("While connected, look-ups for these domains go to this VPN's DNS servers even when another VPN, or a second tunnel, owns the Mac's default DNS (FiveT writes /etc/resolver/<domain> and removes it on disconnect). The DNS suffixes the \(connection.isOpenVPN ? "server" : "gateway") pushes are added automatically; list any other internal domains here. Needs the helper from the General tab.")
-                    .font(.caption).foregroundStyle(.secondary)
-                if let sd = mine?.splitDNS {
-                    LabeledContent("Split DNS") {
-                        Text("\(sd.state)\(sd.detail.isEmpty ? "" : " — " + sd.detail)")
-                            .font(.caption).foregroundStyle(sd.state == "active" ? .green : .orange)
-                    }
-                }
-                if let n = mine?.network, !n.interface.isEmpty {
-                    LabeledContent("Tunnel") {
-                        Text("\(n.interface) \(n.tunnelIP)   DNS \(n.dnsServers.joined(separator: ", "))   \(n.routes.count) routes")
-                            .font(.caption).textSelection(.enabled)
-                    }
-                }
-            }
-            }
-            if connection.kind == .fortinet {
-            Section("Advanced") {
-                LabeledContent("Gateway certificate") {
+                    // Always here, even before a one-time-code mode is chosen: whoever holds the QR code
+                    // their IT team sent should not have to know about modes first.
                     HStack {
+                        Text(connection.usesTOTP ? "Secret from a QR code" : "One-time code from a QR code")
+                        Spacer()
+                        Menu {
+                            Button("Paste Screenshot") { importQRFromClipboard() }
+                            Button("Choose Image…") { importQRFromFile() }
+                        } label: {
+                            Label("Import QR Code", systemImage: "qrcode")
+                        }
+                        .fixedSize()
+                    }
+                    .help("Reads the one-time-code secret from a QR code: a screenshot of it (⌃⇧⌘4 copies one), an image file, a Google Authenticator export, or an otpauth:// link. You can also drop the picture on this row.")
+                    .onDrop(of: [.fileURL, .image], isTargeted: nil) { providers in importQR(dropped: providers) }
+                    if let m = qrMessage {
+                        Text(m).font(.subheadline).foregroundStyle(qrFailed ? Color.red : Color.secondary)
+                    } else if connection.usesTOTP && connection.totpSecret.isEmpty {
+                        Text("Type or paste the secret, or import it from the setup QR code or a Google Authenticator export.")
+                            .font(.subheadline).foregroundStyle(.secondary)
+                    }
+                    // No code (and no "not valid Base32" warning) before a secret is entered.
+                    if connection.usesTOTP && !connection.totpSecret.isEmpty { TOTPPreview(secret: connection.totpSecret, tab: .of(connection)) }
+                    if let e = revealError {
+                        Text(e).font(.subheadline).foregroundStyle(.red)
+                    }
+                }
+                }
+                if !connection.isV2Ray && connection.kind != .fortinet {   // Forti has it inside Advanced
+                Section("DNS") {
+                    dnsFields
+                }
+                }
+                if connection.kind == .fortinet {
+                Section {
+                    // A disclosure row, as Apple's HIG describes one: a chevron that turns when it opens, a label that says what
+                    // is behind it, and the whole row is the click target (DisclosureGroup here opened only from its tiny arrow).
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) { advancedOpen.toggle() }
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "chevron.right")
+                                .font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+                                .rotationEffect(.degrees(advancedOpen ? 90 : 0))
+                                .frame(width: 12)
+                            Text("Advanced")
+                            Spacer()
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityValue(advancedOpen ? "expanded" : "collapsed")
+                    .help(advancedOpen ? "Hide the advanced settings" : "Show the advanced settings: DNS, the gateway certificate, extra options")
+                    if advancedOpen {
+                        dnsFields
+                        LabeledContent("Gateway certificate") {
+                            HStack {
+                                if connection.hasPendingReview {
+                                    Text(connection.pendingCertFirst ? "Unconfirmed" : "Changed").foregroundStyle(.orange)
+                                    Button("Review…") { CertReview.present(connection.id, over: NSApp.keyWindow) }
+                                } else if !connection.knowsGateway {
+                                    Text("Checked on the first connect").foregroundStyle(.secondary)
+                                } else if connection.trustedCert.isEmpty {
+                                    Text("Verified by a certificate authority").foregroundStyle(.secondary)
+                                        .help(connection.trustedCertNames.isEmpty ? "" : "Made out to \(connection.trustedCertNames.joined(separator: ", "))")
+                                } else {
+                                    Text(String(connection.trustedCert.prefix(16)) + "…")
+                                        .font(.system(.body, design: .monospaced))
+                                        .help(connection.trustedCertNames.isEmpty ? connection.trustedCert
+                                              : "\(connection.trustedCert)\nMade out to \(connection.trustedCertNames.joined(separator: ", "))")
+                                }
+                                // Not while a review waits: Forget would make the next connect a first
+                                // meeting, and the certificate under review would be the one met.
+                                if connection.knowsGateway && !connection.hasPendingReview {
+                                    Button("Forget") { connection.forgetCertificate() }
+                                        .help("The next connect meets the gateway as for the first time and asks about its certificate.")
+                                }
+                            }
+                        }
                         if connection.hasPendingReview {
-                            Text(connection.pendingCertFirst ? "Unconfirmed" : "Changed").foregroundStyle(.orange)
-                            Button("Review…") { CertReview.present(connection.id, over: NSApp.keyWindow) }
-                        } else if !connection.knowsGateway {
-                            Text("Checked on the first connect").foregroundStyle(.secondary)
-                        } else if connection.trustedCert.isEmpty {
-                            Text("Verified by a certificate authority").foregroundStyle(.secondary)
-                                .help(connection.trustedCertNames.isEmpty ? "" : "Made out to \(connection.trustedCertNames.joined(separator: ", "))")
-                        } else {
-                            Text(String(connection.trustedCert.prefix(16)) + "…")
+                            Text(connection.pendingCertFirst
+                                 ? "macOS cannot confirm this gateway's certificate belongs to it. FiveT logs in once you have reviewed it."
+                                 : "The gateway showed a different certificate than the one FiveT trusts, and macOS could not confirm it is a renewal. FiveT will not log in to it until you review it.")
+                                .font(.subheadline).foregroundStyle(.secondary)
+                        }
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Extra openfortivpn options (one per line, e.g. set-dns = 1)")
+                                .font(.subheadline).foregroundStyle(.secondary)
+                            TextEditor(text: $connection.extraConfig)
                                 .font(.system(.body, design: .monospaced))
-                                .help(connection.trustedCertNames.isEmpty ? connection.trustedCert
-                                      : "\(connection.trustedCert)\nMade out to \(connection.trustedCertNames.joined(separator: ", "))")
-                        }
-                        // Not while a review waits: Forget would make the next connect a first
-                        // meeting, and the certificate under review would be the one met.
-                        if connection.knowsGateway && !connection.hasPendingReview {
-                            Button("Forget") { connection.forgetCertificate() }
-                                .help("The next connect meets the gateway as for the first time and asks about its certificate.")
+                                .frame(height: 56)
                         }
                     }
                 }
-                if connection.hasPendingReview {
-                    Text(connection.pendingCertFirst
-                         ? "macOS cannot confirm this gateway's certificate belongs to it. FiveT logs in once you have reviewed it."
-                         : "The gateway showed a different certificate than the one FiveT trusts, and macOS could not confirm it is a renewal. FiveT will not log in to it until you review it.")
-                        .font(.caption).foregroundStyle(.secondary)
                 }
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Extra openfortivpn options (one per line, e.g. set-dns = 1)")
-                        .font(.caption).foregroundStyle(.secondary)
-                    TextEditor(text: $connection.extraConfig)
-                        .font(.system(.body, design: .monospaced))
-                        .frame(height: 56)
-                }
-            }
-            }
-            Section {
-                HStack {
-                    Button(isActive ? "Disconnect" : "Connect now") {
-                        if isActive { vpn.toggle(connection); return }
-                        // On a Mac that is not set up yet: the password prompt first, then the tunnel
-                        // (a connect by id, so a second click during the prompt changes nothing).
-                        let id = connection.id
-                        SetupFlow.shared.whenReady({ if let c = ConnectionStore.shared.connection(id: id) { vpn.connect(c, byUser: true) } },
-                                                   failed: { SettingsRouter.shared.tab = .general })
-                    }
-                        .disabled(mine?.phase == .disconnecting)
-                    Spacer()
-                    Text(statusText).foregroundStyle(.secondary).lineLimit(2)
-                }
-                if !isActive, let e = connection.lastError {
-                    Text("Last error: \(e)").font(.caption).foregroundStyle(.secondary)
-                }
-                if !isActive && connection.hasPendingReview {
-                    Button(connection.pendingCertFirst ? "Review Certificate…" : "Review New Certificate…") {
-                        CertReview.present(connection.id, over: NSApp.keyWindow)
+                // Connect and the status moved to the header; what is left is a failed last try and a certificate waiting for review.
+                if !isActive, connection.lastError != nil || connection.hasPendingReview {
+                    Section {
+                        if let e = connection.lastError {
+                            Text("Last error: \(e)").font(.subheadline).foregroundStyle(.secondary)
+                        }
+                        if connection.hasPendingReview {
+                            Button(connection.pendingCertFirst ? "Review Certificate…" : "Review New Certificate…") {
+                                CertReview.present(connection.id, over: NSApp.keyWindow)
+                            }
+                        }
                     }
                 }
             }
+            .formStyle(.grouped)
+            .onAppear { lastGoodSecret = connection.totpSecret }
         }
-        .formStyle(.grouped)
-        .onAppear { lastGoodSecret = connection.totpSecret }
+    }
+
+    /// The name of the connection, its state under it, and Connect at the top right: the same header as Windscribe Max's.
+    private var header: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(connection.name.trimmed.isEmpty ? "Untitled" : connection.name.trimmed)
+                    .font(.title2.weight(.semibold)).lineLimit(1)
+                Text(statusText).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
+            }
+            Spacer(minLength: 8)
+            connectButton
+        }
+        .padding(.horizontal, 20).padding(.top, 16).padding(.bottom, 4)
+    }
+
+    @ViewBuilder private var connectButton: some View {
+        switch mine?.phase {
+        case .connecting:   // a click stops the attempt, like Windscribe Max's button
+            Button { vpn.toggle(connection) } label: {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small).environment(\.colorScheme, .dark)
+                    Text("Connecting…")
+                }
+                .frame(minWidth: 110)
+            }
+            .buttonStyle(.borderedProminent).controlSize(.large)
+            .help("Click to stop connecting")
+        case .connected:
+            Button { vpn.toggle(connection) } label: { Label("Disconnect", systemImage: "xmark.circle").frame(minWidth: 110) }
+                .controlSize(.large)
+        case .disconnecting:
+            Button {} label: {
+                HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Disconnecting…") }.frame(minWidth: 110)
+            }
+            .controlSize(.large).disabled(true)
+        default:
+            Button { connectNow() } label: { Label("Connect", systemImage: "power").frame(minWidth: 110) }
+                .buttonStyle(.borderedProminent).controlSize(.large)
+        }
+    }
+
+    private func connectNow() {
+        // On a Mac that is not set up yet: the password prompt first, then the tunnel
+        // (a connect by id, so a second click during the prompt changes nothing).
+        let id = connection.id
+        SetupFlow.shared.whenReady({ if let c = ConnectionStore.shared.connection(id: id) { vpn.connect(c, byUser: true) } },
+                                   failed: { SettingsRouter.shared.tab = .general })
     }
 }
 
@@ -961,7 +1081,7 @@ struct SetupBanner: View {
                         Text(flow.justSetUp
                              ? (store.connections.isEmpty ? "Next, add your VPN." : "You can connect now.")
                              : "macOS asks for your Mac password once.")
-                            .font(.callout).foregroundStyle(.secondary)
+                            .font(.subheadline).foregroundStyle(.secondary)
                     }
                     Spacer()
                     if !flow.justSetUp {
@@ -978,10 +1098,10 @@ struct SetupBanner: View {
                 if flow.working {
                     HStack(spacing: 8) {
                         ProgressView().controlSize(.small)
-                        Text(flow.message ?? "").font(.callout)
+                        Text(flow.message ?? "").font(.body)
                     }
                 } else if flow.failed, let m = flow.message {
-                    Text(m).font(.callout).foregroundStyle(.red).textSelection(.enabled)
+                    Text(m).font(.body).foregroundStyle(.red).textSelection(.enabled)
                 }
             }
         }
@@ -1014,7 +1134,7 @@ struct SetupSections: View {
                             .foregroundStyle(c.ok ? Color.green : Color.red)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(c.title)
-                            if let h = c.hint { Text(h).font(.caption).foregroundStyle(.secondary) }
+                            if let h = c.hint { Text(h).font(.subheadline).foregroundStyle(.secondary) }
                         }
                         Spacer()
                         if c.fix == .installHelper {
@@ -1025,7 +1145,7 @@ struct SetupSections: View {
                 }
                 if checks.isEmpty || (flow.working && !bannerShown) { ProgressView().controlSize(.small) }
                 // Progress and errors; a success shows in the rows turning green.
-                if !bannerShown, flow.working || flow.failed, let m = flow.message { Text(m).font(.callout) }
+                if !bannerShown, flow.working || flow.failed, let m = flow.message { Text(m).font(.body) }
             }
             Section("Troubleshooting") {
                 Toggle("Detailed log", isOn: $store.verboseLogging)
@@ -1033,12 +1153,12 @@ struct SetupSections: View {
                     .disabled(!store.verboseLogging)
                     .padding(.leading, 20)
                 HStack {
-                    Button("Open Log") { NSWorkspace.shared.open(Log.shared.fileURL) }
+                    Button("Open Log…") { NSWorkspace.shared.open(Log.shared.fileURL) }
                     Button("Copy Diagnostics") {
                         diagnosticsMessage = "Collecting…"
                         Diagnostics.copyToClipboard { diagnosticsMessage = "Copied. Paste it into the chat." }
                     }
-                    if let m = diagnosticsMessage { Text(m).font(.callout).foregroundStyle(.secondary) }
+                    if let m = diagnosticsMessage { Text(m).font(.subheadline).foregroundStyle(.secondary) }
                 }
             }
         }
@@ -1123,7 +1243,7 @@ struct GeneralTab: View {
                             loginMessage = error.localizedDescription
                         }
                     }
-                if let m = loginMessage { Text(m).font(.caption).foregroundStyle(.red) }
+                if let m = loginMessage { Text(m).font(.subheadline).foregroundStyle(.red) }
                 Toggle("Reconnect when the connection drops", isOn: $store.autoReconnect)
                 Toggle("Reconnect when the tunnel stops answering", isOn: $store.watchdog)
                 Toggle("Show the connection name in the menu bar", isOn: $store.showNameInMenuBar)
@@ -1132,11 +1252,11 @@ struct GeneralTab: View {
                 Toggle("Kill Switch", isOn: $store.killSwitch)
                     .onChange(of: store.killSwitch) { _ in VPNManager.shared.killSwitchChanged() }
                 Text("Blocks internet access if the VPN drops.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.subheadline).foregroundStyle(.secondary)
                 Toggle("Use the VPN for Chosen Apps Only", isOn: $store.appsOnly)
                     .onChange(of: store.appsOnly) { _ in VPNManager.shared.appsModeChanged() }
                 Text("For V2Ray and Outline. Only the apps below use the VPN, and the rest of the Mac stays as it is. Start them from FiveT's menu (Open with VPN). While the VPN is down they have no internet at all. Works for apps built on Chrome (Claude, Chrome, Slack, VS Code…), not for Safari or most native apps.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.subheadline).foregroundStyle(.secondary)
                 if store.appsOnly {
                     ForEach(store.vpnApps, id: \.self) { path in
                         HStack {
@@ -1149,10 +1269,10 @@ struct GeneralTab: View {
                 }
                 Toggle("Switch to Another VPN if One Stops Working", isOn: $store.autoFailover)
                 Text("If a VPN stays down after a few tries, FiveT connects the next VPN in your list, and keeps going round the list until one works.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.subheadline).foregroundStyle(.secondary)
                 Toggle("Bypass Iranian Websites", isOn: $store.bypassIran)
                 Text("Iranian sites connect directly, without the VPN.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.subheadline).foregroundStyle(.secondary)
             }
             Section("Updates") {
                 UpdateRow()
@@ -1162,10 +1282,10 @@ struct GeneralTab: View {
                 HStack {
                     Button("Export Settings…") { exportSettings() }
                     Button("Import Settings…") { importSettings() }
-                    if let m = backupMessage { Text(m).font(.callout).foregroundStyle(.secondary) }
+                    if let m = backupMessage { Text(m).font(.subheadline).foregroundStyle(.secondary) }
                 }
                 Text("A .fivet file is an encrypted backup of all connections and settings. Import it on another Mac to copy them.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.subheadline).foregroundStyle(.secondary)
             }
             Section("About") {
                 Link("FiveT on GitHub", destination: Self.repositoryURL)
@@ -1201,7 +1321,7 @@ struct AssistantsTab: View {
                 LabeledContent("Status") { Text(statusText).foregroundStyle(.secondary) }
             } footer: {
                 Text("Assistants never see your passwords or one-time codes.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.subheadline).foregroundStyle(.secondary)
             }
             Section("Add FiveT to") {
                 HStack {
@@ -1224,7 +1344,7 @@ struct AssistantsTab: View {
                     .buttonStyle(.link)
                 }
                 .disabled(working)
-                if let m = message { Text(m).font(.callout).textSelection(.enabled) }
+                if let m = message { Text(m).font(.body).textSelection(.enabled) }
             }
         }
         .formStyle(.grouped)
@@ -1251,7 +1371,7 @@ struct UpdateRow: View {
         HStack(alignment: .center) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
-                if let d = detail { Text(d).font(.caption).foregroundStyle(.secondary) }
+                if let d = detail { Text(d).font(.subheadline).foregroundStyle(.secondary) }
             }
             Spacer()
             switch updater.state {

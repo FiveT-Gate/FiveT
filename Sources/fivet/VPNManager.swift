@@ -274,6 +274,9 @@ final class VPNManager: ObservableObject {
     /// The status of one connection's tunnel, nil when it is not active.
     func status(for id: UUID) -> VPNStatus? { sessions.first { $0.connectionID == id } }
 
+    /// The local SOCKS port of a connection that carries only apps (apps-only mode); nil: it carries the whole Mac.
+    func appProxyPort(for id: UUID) -> Int? { session(for: id)?.appProxyPort }
+
     var connected: [VPNStatus] { sessions.filter { $0.phase == .connected } }
     var isRunning: Bool { live.contains { $0.isRunning } }
     var isBusy: Bool { sessions.contains { $0.phase == .connecting || $0.phase == .disconnecting } }
@@ -321,6 +324,7 @@ final class VPNManager: ObservableObject {
     /// `loginOverrideAt`: that person chose Try Anyway after this many failed logins (LoginGuard);
     /// it allows one login, and only while the count is still that.
     func connect(_ c: Connection, byUser: Bool = false, loginOverrideAt: Int? = nil) {
+        if c.isOtherVPN { Task { @MainActor in WindscribeMax.all.forEach { $0.yieldToFiveT() } } }   // one VPN at a time, the built-in ones too
         if let s = session(for: c.id) {
             switch s.status.phase {
             case .connected:
@@ -359,6 +363,16 @@ final class VPNManager: ObservableObject {
             return
         }
         launch(c, byUser: byUser, loginOverrideAt: loginOverrideAt)
+    }
+
+    /// Stops every VPN (OpenVPN, V2Ray, Outline) that is up or starting, as its user asked, and returns
+    /// their names. Windscribe Max does this before it connects Windscribe: one VPN at a time. A scan
+    /// passes `withForti`: it tests the network itself, so Forti connections go too.
+    @discardableResult
+    func stopOtherVPNs(withForti: Bool = false) -> [String] {
+        let vpns = live.filter { !$0.external && (withForti || $0.connection.isOtherVPN) }
+        for s in vpns { disconnect(id: s.connection.id) }
+        return vpns.map(\.name)
     }
 
     /// Stops one tunnel, as its user asked: the kill switch lets go too.
