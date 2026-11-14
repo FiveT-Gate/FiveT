@@ -1,14 +1,14 @@
 import Foundation
 import AppKit
 
-/// What differs between the built-in services of the VPN tab ("Windscribe Max", "Express Max"): the command line they
+/// What differs between the built-in services of the VPN tab ("Windscribe", "Express"): the command line they
 /// drive, the places and protocols it offers, and a few words. The model (`WindscribeMax`, one instance per service),
 /// the scan, the scoring and the panel are the same for both.
 @MainActor
 protocol MaxBackend: AnyObject {
     /// "Windscribe": what the service is called in sentences.
     var name: String { get }
-    /// "Windscribe Max": the panel's title.
+    /// "Windscribe": the panel's title.
     var title: String { get }
     /// The service's line in the menu bar menu.
     var menuName: String { get }
@@ -67,7 +67,7 @@ protocol MaxBackend: AnyObject {
 @MainActor
 final class WindscribeBackend: MaxBackend {
     let name = "Windscribe"
-    let title = "Windscribe Max"
+    let title = "Windscribe"
     let menuName = "Windscribe"
     let rowID = WindscribeMax.rowID
     let fileName = "windscribe-max.json"
@@ -148,7 +148,7 @@ final class WindscribeBackend: MaxBackend {
 @MainActor
 final class ExpressBackend: MaxBackend {
     let name = "ExpressVPN"
-    let title = "Express Max"
+    let title = "Express"
     let menuName = "Express"
     let rowID = WindscribeMax.expressRowID
     let fileName = "expressvpn-max.json"

@@ -139,7 +139,11 @@ struct WindscribeMark: View {
     let resource: String?
     var body: some View {
         if let logo = serviceLogo(resource) {
-            Image(nsImage: logo).resizable().interpolation(.high).frame(width: size, height: size)
+            // The logo files keep a transparent margin (the icon fills 104 of 128 px): enlarged by 128/104 so the
+            // visible logo is as big as Smart Connect's tile, which fills its whole frame.
+            Image(nsImage: logo).resizable().interpolation(.high)
+                .frame(width: size * 1.23, height: size * 1.23)
+                .frame(width: size, height: size)
         } else {
             Image(systemName: "bolt.fill")
                 .font(.system(size: size * 0.45, weight: .bold))
@@ -327,7 +331,7 @@ private struct NetworkBar: View {
                     ForEach(m.otherNetworks, id: \.key) { n in
                         Menu("\(m.displayName(n.key)) · \(n.profile.results.filter(\.works).count) of \(n.profile.results.count)") {
                             Button("Forget This Network", role: .destructive) { m.forgetNetwork(n.key) }
-                                .help("Deletes its name and its saved results and settings, in Windscribe Max and in Express Max.")
+                                .help("Deletes its name and its saved results and settings, in Windscribe and in Express.")
                         }
                     }
                 }
@@ -384,7 +388,7 @@ private struct InstallCard: View {
             Text(missingApp ? "\(name) is not installed" : "\(name)'s command line is missing")
                 .font(.title3.weight(.semibold))
             Text(missingApp
-                 ? "\(m.backend.title) drives the \(name) app and its command line tool, which you install yourself: FiveT does not include them."
+                 ? "This row works through the \(name) app and its command line tool, which you install yourself: FiveT does not include them."
                  : "The \(name) app is on this Mac, but its command line tool (\(m.backend.hasPorts ? "windscribe-cli" : "expressvpnctl")) was not found. Install the latest \(name) over it: current versions include the tool.")
                 .multilineTextAlignment(.center).foregroundStyle(.secondary).frame(maxWidth: 420)
             VStack(alignment: .leading, spacing: 6) {
@@ -437,7 +441,7 @@ private struct SignInCard: View {
             if busy { ProgressView() } else { Image(systemName: "person.crop.circle.badge.exclamationmark").font(.system(size: 36, weight: .light)).foregroundStyle(.secondary) }
             Text(busy ? "\(m.backend.name) is signing in…" : "Sign in to \(m.backend.name)").font(.title3.weight(.semibold))
             Text(busy ? "This panel opens up once it is done."
-                      : "Open the \(m.backend.name) app and sign in with your account. \(m.backend.title) can then connect it and scan for routes that work here.")
+                      : "Open the \(m.backend.name) app and sign in with your account. FiveT can then connect it and scan for routes that work here.")
                 .multilineTextAlignment(.center).foregroundStyle(.secondary).frame(maxWidth: 380)
             if !state.isEmpty { Text("\(m.backend.name) says: \(state)").font(.subheadline).foregroundStyle(.secondary) }
             Button("Open \(m.backend.name)…") { m.openApp() }.buttonStyle(.borderedProminent).controlSize(.large)

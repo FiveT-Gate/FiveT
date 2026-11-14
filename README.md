@@ -19,7 +19,7 @@ FiveT is a small shield in the macOS menu bar and in the Windows notification ar
 - **Backup.** Export all connections and settings to a `.fivet` file and import them on another computer.
 - **Updates itself** in the background. Every release is signed, and a copy only installs updates signed with FiveT's own key.
 
-Only on the Mac: **Smart Connect** tests every VPN you switched on and keeps the best one connected, **Windscribe Max** and **Express Max** drive the Windscribe and ExpressVPN apps you already have, and the **SSO** tab types a one-time code into any app when you press its keyboard shortcut.
+Only on the Mac: **Smart Connect** tests every VPN you switched on and keeps the best one connected, the built-in **Windscribe** and **Express** rows drive the Windscribe and ExpressVPN apps you already have, and the **SSO** tab types a one-time code into any app when you press its keyboard shortcut.
 
 ## Install
 

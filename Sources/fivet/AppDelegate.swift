@@ -126,7 +126,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         if args.contains("--setup") { showSettings(tab: .general) }
         else if args.contains("--sso") { showSettings(tab: .sso) }
         else if args.contains("--settings") {
-            // `--settings windscribe` (or `expressvpn`) opens the VPN tab on Windscribe Max (with FIVET_WINDSCRIBE_CLI=none in a test copy: its "not installed" screen).
+            // `--settings windscribe` (or `expressvpn`) opens the VPN tab on Windscribe (with FIVET_WINDSCRIBE_CLI=none in a test copy: its "not installed" screen).
             if args.contains("windscribe") { SettingsRouter.shared.picked[.openvpn] = WindscribeMax.rowID; showSettings(tab: .openvpn) }
             else if args.contains("expressvpn") { SettingsRouter.shared.picked[.openvpn] = WindscribeMax.expressRowID; showSettings(tab: .openvpn) }
             else if args.contains("smart") { SettingsRouter.shared.picked[.openvpn] = SmartConnect.rowID; showSettings(tab: .openvpn) }
@@ -150,7 +150,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         if let i = args.firstIndex(of: "--dump-settings") {
             let name = args.dropFirst(i + 1).first
             let named: [String: SettingsTab] = ["mcp": .general, "connections": .connections, "forti": .connections, "smart": .openvpn, "openvpn": .openvpn, "windscribe": .openvpn, "expressvpn": .openvpn, "sso": .sso]
-            if name == "windscribe" { SettingsRouter.shared.picked[.openvpn] = WindscribeMax.rowID }   // the VPN tab with Windscribe Max picked
+            if name == "windscribe" { SettingsRouter.shared.picked[.openvpn] = WindscribeMax.rowID }   // the VPN tab with Windscribe picked
             if name == "expressvpn" { SettingsRouter.shared.picked[.openvpn] = WindscribeMax.expressRowID }
             if name == "smart" { SettingsRouter.shared.picked[.openvpn] = SmartConnect.rowID }
             showSettings(tab: name.flatMap { named[$0] } ?? .general)
@@ -350,7 +350,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         return img
     }
 
-    /// A solid shield with a magnifying glass cut out of it: the icon while Windscribe Max scans. Cut out
+    /// A solid shield with a magnifying glass cut out of it: the icon while Windscribe scans. Cut out
     /// (not drawn over), so it stays a template image that follows the menu bar's colours. It sits on the
     /// 17 × 20 pt canvas of the "off" icon (shield.slash.fill) at the same height. The off icon looks bigger than
     /// its 12.1 × 14.6 pt shield, because its slash reaches out to 14.9 × 14.9 pt, so this shield is drawn

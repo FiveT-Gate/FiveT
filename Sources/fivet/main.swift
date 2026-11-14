@@ -122,10 +122,10 @@ if let first = cliArgs.first {
         }
         checkApp.run()
     case "--check-windscribe":
-        // Windscribe Max's parsers against sample output, and (read only) what Windscribe on this Mac says.
+        // Windscribe's parsers against sample output, and (read only) what Windscribe on this Mac says.
         exit(WindscribeCheck.run())
     case "--check-expressvpn":
-        // Express Max's parsers against sample output, and (read only) what ExpressVPN on this Mac says.
+        // Express's parsers against sample output, and (read only) what ExpressVPN on this Mac says.
         exit(ExpressCheck.run())
     case "--check-sso":
         // SSO codes against a throwaway data folder (FIVET_DATA_DIR, test builds only): a .fivet backup

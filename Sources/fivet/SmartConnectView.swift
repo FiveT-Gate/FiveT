@@ -35,23 +35,26 @@ struct SmartConnectTab: View {
     var body: some View {
         let entries = smart.entries
         let saved = entries.filter { !$0.builtIn }
-        Form {
-            Section {
-                SmartHeader()
-                Toggle("Switch to Another VPN if One Stops Working", isOn: $store.autoFailover)
-                Text("If the VPN you are using stays down after a few tries, FiveT connects the next of My VPNs that is switched on below, and keeps going round until one works.")
-                    .font(.subheadline).foregroundStyle(.secondary)
-            }
-            if !saved.isEmpty {
-                Section("My VPNs") {
-                    ForEach(saved) { SmartRow(entry: $0) }
+        VStack(spacing: 0) {
+            // Outside the form, with the margins of the Windscribe and Express panels, so icon, title and Connect sit in the same place.
+            SmartHeader().padding(.horizontal, 20).padding(.top, 16)
+            Form {
+                Section {
+                    Text("Checks every VPN that is switched on in the background, then connects the one with the best score.")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                    Toggle("Switch VPN if One Fails", isOn: $store.autoFailover)
+                }
+                if !saved.isEmpty {
+                    Section("My VPNs") {
+                        ForEach(saved) { SmartRow(entry: $0) }
+                    }
+                }
+                Section("Built in") {
+                    ForEach(entries.filter(\.builtIn)) { SmartRow(entry: $0) }
                 }
             }
-            Section("Built in") {
-                ForEach(entries.filter(\.builtIn)) { SmartRow(entry: $0) }
-            }
+            .formStyle(.grouped)
         }
-        .formStyle(.grouped)
         // The built-in services are asked once when the panel opens: "Signed out" and the dots are then true.
         .task { for m in WindscribeMax.all where !m.scanning && m.busy == nil { await m.refresh() } }
     }
@@ -71,20 +74,23 @@ private struct SmartHeader: View {
     }
 
     var body: some View {
+        // The same header as the Windscribe and Express panels: 44 pt mark, title2 title, a status line, Connect on the right.
         HStack(spacing: 12) {
-            SmartMark(size: 40)
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Smart Connect").font(.headline)
+            SmartMark(size: 44)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Smart Connect").font(.title2.weight(.semibold))
                 if smart.running {
                     HStack(spacing: 6) {
-                        ProgressView().controlSize(.small)
+                        ProgressView().controlSize(.mini)
                         Text(smart.step).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
                     }
                 } else if let n = notice {
                     Text(n).font(.subheadline).foregroundStyle(smart.noticeIsError ? Color.red : .secondary).lineLimit(2)
                 } else {
-                    Text("Checks every VPN that is switched on in the background, then connects the one with the best score.")
-                        .font(.subheadline).foregroundStyle(.secondary)
+                    HStack(spacing: 6) {
+                        Circle().fill(Color.secondary.opacity(0.4)).frame(width: 8, height: 8)
+                        Text("Ready").font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                    }
                 }
             }
             Spacer(minLength: 8)
@@ -92,12 +98,11 @@ private struct SmartHeader: View {
                 if smart.running { smart.stop() } else { smart.start() }
             } label: {
                 Label(smart.running ? "Stop" : "Connect", systemImage: smart.running ? "stop.fill" : "bolt.fill")
-                    .frame(minWidth: 84)
+                    .frame(minWidth: 110)
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
         }
-        .padding(.vertical, 4)
     }
 }
 

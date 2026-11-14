@@ -1,7 +1,7 @@
 import Foundation
 
 /// Windscribe's server list as of 2026-11-13, one country per line: `CODE|Country|Continent|City,City`.
-/// Windscribe Max uses it when the CLI lists nothing and no fresher list was downloaded
+/// Windscribe uses it when the CLI lists nothing and no fresher list was downloaded
 /// (Update list in the Scan tab); it is only names, nothing of Windscribe's program.
 enum WindscribeSnapshot {
     static let text = """

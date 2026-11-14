@@ -366,7 +366,7 @@ final class VPNManager: ObservableObject {
     }
 
     /// Stops every VPN (OpenVPN, V2Ray, Outline) that is up or starting, as its user asked, and returns
-    /// their names. Windscribe Max does this before it connects Windscribe: one VPN at a time. A scan
+    /// their names. The built-in Windscribe and Express rows do this before they connect: one VPN at a time. A scan
     /// passes `withForti`: it tests the network itself, so Forti connections go too.
     @discardableResult
     func stopOtherVPNs(withForti: Bool = false) -> [String] {

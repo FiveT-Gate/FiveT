@@ -3,7 +3,7 @@ import AppKit
 import Combine
 
 extension Notification.Name {
-    /// A scan of Windscribe Max or Express Max started or ended.
+    /// A scan of Windscribe or Express started or ended.
     static let windscribeScanChanged = Notification.Name("FiveTWindscribeScanChanged")
 }
 
@@ -116,7 +116,7 @@ struct WindscribeScanSettings: Codable, Equatable {
     }
 }
 
-/// Windscribe Max and Express Max: the built-in entries of the VPN tab. Each drives the official command line of
+/// Windscribe and Express: the built-in entries of the VPN tab. Each drives the official command line of
 /// its service, and AutoScribe's way of finding which locations, protocols and ports work on this network. The class is
 /// the same for both; what differs is the `backend`. It lives here for the whole run of the app, so a scan goes on when
 /// Settings is closed. (The names say Windscribe because it came first.)
@@ -191,7 +191,7 @@ final class WindscribeMax: ObservableObject {
     /// Windscribe is up because of a click here (or a scan that kept its route): FiveT's own VPNs
     /// then end it, one VPN at a time. A Windscribe someone started in its own app is left alone.
     private var connectedByMax = false
-    /// Windscribe's firewall as it was before Windscribe Max connected: a failed or ended connection can
+    /// Windscribe's firewall as it was before Windscribe connected: a failed or ended connection can
     /// leave it ON (the Mac's internet blocked), so it is put back as it was. nil: leave it alone.
     private var firewallBefore: Bool?
     /// This service's Connect is still making room (it has not touched its own connection yet).
@@ -337,7 +337,7 @@ final class WindscribeMax: ObservableObject {
     }
 
     func clearResults() { results = []; save() }
-    /// Forgets another network in every service (its results, settings and name): a network is the same network in Windscribe Max and Express Max.
+    /// Forgets another network in every service (its results, settings and name): a network is the same network in Windscribe and Express.
     func forgetNetwork(_ key: String) {
         guard key != profileKey else { return }
         for m in WindscribeMax.all where m.profileKey != key { m.profiles[key] = nil; m.save() }

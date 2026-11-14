@@ -4,7 +4,7 @@ import CoreWLAN
 import CoreLocation
 import SystemConfiguration
 
-/// Which network the Mac is on, for the scan profiles of Windscribe Max and Express Max (what works on one Wi-Fi may
+/// Which network the Mac is on, for the scan profiles of Windscribe and Express (what works on one Wi-Fi may
 /// not work on another). The key is the router's hardware address: it needs no permission, and tells two networks
 /// apart even when both are called "Home" or both use 192.168.1.1. The Wi-Fi name is only the label, because since
 /// macOS 14 it is hidden from a program until the person allows Location for it.
@@ -28,7 +28,7 @@ final class NetworkIdentity: NSObject, ObservableObject, CLLocationManagerDelega
     @Published private(set) var servicesOn = false
 
     /// The names the person gave networks ("Home", "Office"), by network key. One list for every service: a network
-    /// is the same network in Windscribe Max and in Express Max, so a name given in one shows in the other.
+    /// is the same network in Windscribe and in Express, so a name given in one shows in the other.
     @Published private(set) var names: [String: String] = [:]
     private var namesURL: URL { ConnectionStore.shared.directory.appendingPathComponent("network-names.json") }
 

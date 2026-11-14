@@ -1,7 +1,7 @@
 import Foundation
 import AppKit
 
-/// The official ExpressVPN command line (`expressvpnctl`, inside ExpressVPN.app), driven the way Windscribe Max
+/// The official ExpressVPN command line (`expressvpnctl`, inside ExpressVPN.app), driven the way Windscribe
 /// drives `windscribe-cli`: `connect <region>` returns at once, then `get connectionstate` is read until it says
 /// Connected, then the route is pinged. FiveT never bundles ExpressVPN: the user installs the app, and this only runs
 /// its command line as the user.
@@ -318,7 +318,7 @@ uzbekistan|UZ|Uzbekistan|Asia
 vietnam|VN|Vietnam|Asia
 """
 
-    /// Country codes FiveT never lists, scans or connects to (the same rule as Windscribe Max).
+    /// Country codes FiveT never lists, scans or connects to (the same rule as Windscribe).
     static let leftOut: Set<String> = ["IL"]
     private static let leftOutSlugs: Set<String> = ["israel"]
 

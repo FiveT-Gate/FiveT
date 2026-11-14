@@ -980,7 +980,7 @@ struct ConnectionForm: View {
         }
     }
 
-    /// The name of the connection, its state under it, and Connect at the top right: the same header as Windscribe Max's.
+    /// The name of the connection, its state under it, and Connect at the top right: the same header as Windscribe's.
     private var header: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
@@ -996,7 +996,7 @@ struct ConnectionForm: View {
 
     @ViewBuilder private var connectButton: some View {
         switch mine?.phase {
-        case .connecting:   // a click stops the attempt, like Windscribe Max's button
+        case .connecting:   // a click stops the attempt, like Windscribe's button
             Button { vpn.toggle(connection) } label: {
                 HStack(spacing: 6) {
                     ProgressView().controlSize(.small).environment(\.colorScheme, .dark)

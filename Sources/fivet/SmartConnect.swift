@@ -4,7 +4,7 @@ import Combine
 /// Smart Connect: tries every VPN the person left switched on (My VPNs and the built-in services), one after the
 /// other, each the way it is set to connect (a saved connection as it is; a built-in service with the place and
 /// protocol of its panel). Through each tunnel that comes up it times a web page and a download, scores it like the
-/// scans of Windscribe Max do, and leaves the best one connected. Forti is not part of it: that is the company's network.
+/// scans of Windscribe do, and leaves the best one connected. Forti is not part of it: that is the company's network.
 @MainActor
 final class SmartConnect: ObservableObject {
     static let shared = SmartConnect()
@@ -84,7 +84,7 @@ final class SmartConnect: ObservableObject {
     /// Starts a run (after the helper is set up, on a Mac that is not yet).
     func start() {
         guard !running else { return }
-        guard !WindscribeMax.scanActive else { return tell("A scan of Windscribe Max or Express Max is running. Stop it first.", error: true) }
+        guard !WindscribeMax.scanActive else { return tell("A scan of Windscribe or Express is running. Stop it first.", error: true) }
         guard entries.contains(where: isOn) else { return tell("Switch on at least one VPN.", error: true) }
         SetupFlow.shared.whenReady({ [weak self] in self?.begin() },
                                    failed: { [weak self] in self?.tell("FiveT is not set up yet. Open Settings → General.", error: true) })
@@ -186,7 +186,7 @@ final class SmartConnect: ObservableObject {
     /// A score for `e` without changing the Mac's connection:
     /// - the VPN that is up now: measured through its tunnel;
     /// - V2Ray and Outline: a second Xray, a local proxy only, straight to the server over the Wi-Fi or Ethernet;
-    /// - Windscribe Max and Express Max: the best route of their last scan on this network;
+    /// - Windscribe and Express: the best route of their last scan on this network;
     /// - OpenVPN: what Smart Connect measured the last time it was up on this network (it cannot be tried without its tunnel).
     private func check(_ e: Entry) async -> Measure {
         if isUp(e), e.builtIn || vpn.appProxyPort(for: e.id) == nil {
