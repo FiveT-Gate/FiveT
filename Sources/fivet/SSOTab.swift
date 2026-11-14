@@ -2,27 +2,23 @@ import SwiftUI
 import AppKit
 import Combine
 
-/// One line of feedback above the list, with an optional next step (Record Shortcut after an import).
+/// One line above the list for something that did NOT work (a picture without a QR code, a code that is
+/// already there). Adding and changing codes shows nothing.
 struct SSONotice: Equatable {
     let id = UUID()
     var text: String
-    var failed = false
-    /// An entry whose shortcut the notice offers to record.
-    var recordFor: UUID? = nil
 }
 
 /// The SSO tab: the one-time codes, each with a name and a shortcut, and what it takes to use them.
 ///
-/// Laid out so nothing you need scrolls away: the header (with Add), the permission notice and the
-/// footer (permission state, the box for trying a shortcut) stay put, and only the list scrolls.
+/// Laid out so nothing you need scrolls away: the header (with Add) and the permission notice stay
+/// put, and only the list scrolls.
 struct SSOTab: View {
     @ObservedObject private var store = SSOStore.shared
     @ObservedObject private var center = SSOCoordinator.shared
     @ViewState private var showingAdd = false
     @ViewState private var notice: SSONotice?
     @ViewState private var pendingRemoval: SSOEntry?
-    @ViewState private var tryText = ""
-    @FocusState private var tryFocused: Bool
     @FocusState private var nameFocus: UUID?
 
     var body: some View {
@@ -33,9 +29,11 @@ struct SSOTab: View {
                 SSONoticeBanner(notice: notice) { self.notice = nil }
             }
             if store.entries.isEmpty { emptyState } else { list }
-            Divider()
-            footer
         }
+        // A click on empty space finishes a name being edited (macOS leaves the cursor in a text field
+        // otherwise; the buttons and fields in the tab take their own clicks first).
+        .contentShape(Rectangle())
+        .onTapGesture { nameFocus = nil }
         .sheet(isPresented: $showingAdd) {
             SSOAddSheet { accounts, name, clipboard in adopt(accounts, name: name, clipboard: clipboard) }
         }
@@ -68,8 +66,9 @@ struct SSOTab: View {
                 // pressed then would rename it.
                 DispatchQueue.main.async { nameFocus = nil }
             }
-            // A code left in the box, or the box still "having the keyboard", must not outlive the tab.
-            else { tryText = ""; tryFocused = false; SSOCoordinator.shared.tryBoxHasKeyboard = false }
+            // A notice only lasts for the visit (it has no timer: apps should not take away what people
+            // may still be reading), and a name being edited is finished.
+            else { notice = nil; nameFocus = nil }
         }
         .onReceive(Timer.publish(every: 2, on: .main, in: .common).autoconnect()) { _ in
             if SettingsRouter.shared.tab == .sso { center.refreshPermission() }
@@ -132,34 +131,10 @@ struct SSOTab: View {
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
             Text("You can also drop a picture of the QR code anywhere on this tab.")
-                .font(.caption).foregroundStyle(.tertiary)
+                .font(.callout).foregroundStyle(.secondary)
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private var footer: some View {
-        HStack(spacing: 12) {
-            if center.typingAllowed {
-                Label { Text("FiveT can type your codes").foregroundStyle(.secondary) } icon: {
-                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                }
-                .font(.callout)
-            }
-            Spacer(minLength: 8)
-            if !store.entries.isEmpty {
-                // The one place in FiveT's own windows that takes a code: anywhere else a code would land
-                // in the name of an entry.
-                TextField("Try a shortcut", text: $tryText, prompt: Text("Try it here: click, then press a shortcut"))
-                    .labelsHidden()
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 300)
-                    .focused($tryFocused)
-                    .onChange(of: tryFocused) { focused in SSOCoordinator.shared.tryBoxHasKeyboard = focused }
-            }
-        }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 10)
     }
 
     // MARK: Adding
@@ -181,41 +156,20 @@ struct SSOTab: View {
 
     private func save(_ accounts: [OTPAuthImport.Account], name: String?, clipboard: Int?) {
         let outcome = store.add(accounts, name: name)
-        var text = ""
         if !outcome.added.isEmpty {
-            let names = outcome.added.map { "“\($0.name)”" }.joined(separator: ", ")
-            text = outcome.added.count == 1
-                ? "Added \(names). Compare its code with your authenticator app, then give it a shortcut."
-                : "Added \(names). Compare their codes with your authenticator app, then give each a shortcut."
             Log.shared.write("SSO: added \(outcome.added.count) code(s) from a pasted secret, a link or a QR code")
+            // The clipboard held the secret, and clipboard managers and Universal Clipboard keep what it holds.
+            if let clipboard, NSPasteboard.general.changeCount == clipboard { NSPasteboard.general.clearContents() }
         }
+        // Success is silent (the new row is the answer, and the name field is not given the cursor: that
+        // left it "stuck" in edit mode). A code that was not added is not: nothing would seem to happen.
         if !outcome.duplicates.isEmpty {
-            text += (text.isEmpty ? "" : " ") + "Already here, not added again: \(outcome.duplicates.joined(separator: ", "))."
-        }
-        // The clipboard held the secret, and clipboard managers and Universal Clipboard keep what it holds.
-        if !outcome.added.isEmpty, let clipboard, NSPasteboard.general.changeCount == clipboard {
-            NSPasteboard.general.clearContents()
-            text += " The clipboard was emptied, since it held the secret."
-        }
-        guard !text.isEmpty else { return }
-        // A single new code: put the cursor in its name, and offer the next step.
-        let only = outcome.added.count == 1 ? outcome.added[0] : nil
-        show(SSONotice(text: text, recordFor: only?.id))
-        if let only {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { nameFocus = only.id }
+            notice = SSONotice(text: "Already here, not added again: \(outcome.duplicates.joined(separator: ", ")).")
         }
     }
 
     private func report(_ error: Error) {
-        show(SSONotice(text: (error as? OTPAuthImport.Failure)?.message ?? error.localizedDescription, failed: true), seconds: 20)
-    }
-
-    /// Shows a notice and takes it away again after a while (unless a newer one has replaced it).
-    private func show(_ new: SSONotice, seconds: Double = 14) {
-        notice = new
-        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) {
-            if notice?.id == new.id { notice = nil }
-        }
+        notice = SSONotice(text: (error as? OTPAuthImport.Failure)?.message ?? error.localizedDescription)
     }
 }
 
@@ -249,26 +203,19 @@ struct SSOPermissionBanner: View {
     }
 }
 
-/// What just happened, and what to do next.
+/// What did not work.
 struct SSONoticeBanner: View {
     let notice: SSONotice
     let dismiss: () -> Void
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Image(systemName: notice.failed ? "exclamationmark.circle.fill" : "checkmark.circle.fill")
-                .foregroundStyle(notice.failed ? Color.red : Color.green)
+            Image(systemName: "exclamationmark.circle.fill")
+                .foregroundStyle(Color.red)
             Text(notice.text)
                 .font(.callout)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 8)
-            if let id = notice.recordFor {
-                Button("Record Shortcut") {
-                    ShortcutRecording.shared.start(for: id)
-                    dismiss()
-                }
-                .controlSize(.small)
-            }
             Button(action: dismiss) { Image(systemName: "xmark") }
                 .buttonStyle(.borderless)
                 .accessibilityLabel("Dismiss")
@@ -276,7 +223,7 @@ struct SSONoticeBanner: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(RoundedRectangle(cornerRadius: 10, style: .continuous)
-            .fill((notice.failed ? Color.red : Color.green).opacity(0.10)))
+            .fill(Color.red.opacity(0.10)))
         .padding(.horizontal, 20)
         .padding(.bottom, 8)
     }

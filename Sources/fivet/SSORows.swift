@@ -36,13 +36,18 @@ struct SSOEntryRow: View {
                     Menu {
                         Button("Copy Code") { copyCode(entry) }
                         Button("Rename") { nameFocus.wrappedValue = id }
+                        // The ✕ next to the shortcut shows only under the pointer; this is the way in for
+                        // the keyboard and VoiceOver.
+                        if entry.shortcut != nil {
+                            Button("Remove Shortcut") { store.mutate(id: id) { $0.shortcut = nil } }
+                        }
                         Button("Show Secret…") { showSecret(entry) }
                         Divider()
                         Button("Remove…", role: .destructive) { onRemove() }
                     } label: {
                         Image(systemName: "ellipsis.circle")
                             .font(.system(size: 16))
-                            .accessibilityLabel("More actions for \(entry.name)")
+                            .accessibilityLabel("More actions for \(entry.name.isEmpty ? "this code" : entry.name)")
                     }
                     .menuStyle(.borderlessButton)
                     .menuIndicator(.hidden)
@@ -105,6 +110,10 @@ struct InlineNameField: View {
             .textFieldStyle(.plain)
             .font(.headline)
             .focused(focus, equals: id)
+            // Return finishes the name, Esc leaves the field: without them nothing but clicking another
+            // field got the cursor out of here.
+            .onSubmit { focus.wrappedValue = nil }
+            .onExitCommand { focus.wrappedValue = nil }
             .padding(.horizontal, 7)
             .padding(.vertical, 4)
             .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
@@ -262,20 +271,32 @@ struct CountdownRing: View {
     var body: some View {
         let tint: Color = seconds <= 5 ? .red : (seconds <= 10 ? .orange : .secondary)
         ZStack {
-            Circle().stroke(Color.primary.opacity(0.12), lineWidth: 3)
+            // Inset by half the line so the ring's outer edge is the 30 pt frame, not 3 pt outside it.
+            Circle().inset(by: 1.5).stroke(Color.primary.opacity(0.12), lineWidth: 3)
             Circle()
+                .inset(by: 1.5)
                 .trim(from: 0, to: CGFloat(seconds) / CGFloat(TOTP.period))
                 .stroke(tint, style: StrokeStyle(lineWidth: 3, lineCap: .round))
                 .rotationEffect(.degrees(-90))
                 // Runs down smoothly, and jumps back to full with the new code instead of sweeping back.
                 .animation(seconds >= 29 ? nil : .linear(duration: 1), value: seconds)
+            // 11 pt: Apple's smallest Mac text is 10 pt. Centred by the ink of the digits, not by their
+            // advance box: a "1" has its ink left of the middle of its box, so "12" looked pushed off.
             Text("\(seconds)")
-                .font(.system(size: 9, weight: .semibold, design: .rounded))
-                .monospacedDigit()
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
                 .foregroundStyle(tint)
+                .offset(x: -Self.inkShift("\(seconds)"))
         }
-        .frame(width: 26, height: 26)
+        .frame(width: 30, height: 30)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(seconds) seconds left")
+    }
+
+    /// How far right of the middle of its advance box the ink of `text` sits, in points (negative: left).
+    private static func inkShift(_ text: String) -> CGFloat {
+        let base = NSFont.systemFont(ofSize: 11, weight: .semibold)
+        let font = base.fontDescriptor.withDesign(.rounded).flatMap { NSFont(descriptor: $0, size: 11) } ?? base
+        let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: [.font: font]))
+        return CTLineGetImageBounds(line, nil).midX - CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)) / 2
     }
 }

@@ -15,10 +15,6 @@ final class SSOCoordinator: ObservableObject {
     /// a rejected code counts as a failed login. The next one comes at most this long after.
     static let minimumSecondsLeft: TimeInterval = 2
 
-    /// The "Try a shortcut" box of the SSO tab has the keyboard (the tab says so). The only place in
-    /// FiveT's own windows where a code may be typed.
-    var tryBoxHasKeyboard = false
-
     private let store = SSOStore.shared
     private var registered: [UUID: (token: UInt32, shortcut: KeyShortcut)] = [:]
     private var suspended = false
@@ -106,10 +102,10 @@ final class SSOCoordinator: ObservableObject {
         guard let entry = store.entry(id: id), let code = TOTP.code(secret: entry.secret) else { busy = false; return }
         let name = displayName(entry)
         // With FiveT itself in front, a code would land wherever its keyboard focus happens to be: in
-        // the name of an entry, say. Only the Try box of the SSO tab is a place for one.
+        // the name of an entry, say. Nothing is typed then.
         let ownFront = NSWorkspace.shared.frontmostApplication?.processIdentifier == ProcessInfo.processInfo.processIdentifier
-        if ownFront && !(tryBoxHasKeyboard && SettingsRouter.shared.tab == .sso) {
-            HUD.show("FiveT is in front", detail: "Switch to the app where you need the code, or click the Try box at the bottom of the SSO tab.",
+        if ownFront {
+            HUD.show("FiveT is in front", detail: "Switch to the app where you need the code, then press the shortcut.",
                      symbol: "arrow.uturn.left.circle", tint: .secondaryLabelColor, seconds: 4)
             finish()
             return
