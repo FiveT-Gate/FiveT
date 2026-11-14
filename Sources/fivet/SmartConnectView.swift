@@ -38,6 +38,9 @@ struct SmartConnectTab: View {
         Form {
             Section {
                 SmartHeader()
+                Toggle("Switch to Another VPN if One Stops Working", isOn: $store.autoFailover)
+                Text("If the VPN you are using stays down after a few tries, FiveT connects the next of My VPNs that is switched on below, and keeps going round until one works.")
+                    .font(.subheadline).foregroundStyle(.secondary)
             }
             if !saved.isEmpty {
                 Section("My VPNs") {

@@ -1267,9 +1267,6 @@ struct GeneralTab: View {
                     }
                     Button("Add App…") { addVPNApp() }
                 }
-                Toggle("Switch to Another VPN if One Stops Working", isOn: $store.autoFailover)
-                Text("If a VPN stays down after a few tries, FiveT connects the next VPN in your list, and keeps going round the list until one works.")
-                    .font(.subheadline).foregroundStyle(.secondary)
                 Toggle("Bypass Iranian Websites", isOn: $store.bypassIran)
                 Text("Iranian sites connect directly, without the VPN.")
                     .font(.subheadline).foregroundStyle(.secondary)
