@@ -45,6 +45,8 @@ final class SmartConnect: ObservableObject {
     @Published private(set) var noticeConnection: UUID?
 
     private var task: Task<Void, Never>?
+    /// This run has started connecting something: from then on the VPN from before may be down, or going down.
+    private var changed = false
     /// The side Xray of a background check, while one runs.
     private var probing: Process?
 
@@ -102,6 +104,8 @@ final class SmartConnect: ObservableObject {
         results = [:]
         winner = nil
         notice = nil
+        noticeConnection = nil
+        changed = false
         task = Task {
             let before = self.upNow()
             let outcome = await self.run(list)
@@ -117,7 +121,9 @@ final class SmartConnect: ObservableObject {
                     self.tell("Stopped. Nothing changed.")
                 case .nothing:
                     await self.putBack(before)
-                    self.tell(cancelled ? "Stopped." : "None of the \(list.count) VPNs could be connected. \(before == nil ? "" : "Back to the one you had.")", error: !cancelled)
+                    // Said only when it is true: the VPN from before may not have come back up.
+                    let back = before.map { self.isUp($0) ? " Back to \($0.name)." : " \($0.name) did not come back up either." } ?? ""
+                    self.tell(cancelled ? "Stopped." + back : "None of the \(list.count) VPNs could be connected." + back, error: !cancelled)
                 }
             }.value
             self.running = false
@@ -154,6 +160,7 @@ final class SmartConnect: ObservableObject {
             winner = e.id
             if isUp(e) { return .kept(e.name) }
             step = "Connecting to \(e.name)…"
+            changed = true
             let (ok, failure) = await connect(e)
             if ok {
                 if results[e.id]?.score == nil { Task { await self.learn(e) } }   // known the next time
@@ -259,7 +266,7 @@ final class SmartConnect: ObservableObject {
         guard isUp(e), e.builtIn || vpn.appProxyPort(for: e.id) == nil else { return }
         let m = await measure(socksPort: nil)
         guard m.failure == nil, isUp(e) else { return }
-        results[e.id] = m
+        if !running { results[e.id] = m }   // a new run has its own results
         if !e.builtIn { remember(m, for: e) }
     }
 
@@ -315,7 +322,9 @@ final class SmartConnect: ObservableObject {
     private func upNow() -> Entry? { entries.first(where: isUp) }
 
     private func putBack(_ before: Entry?) async {
-        if let before, isUp(before) { return }   // nothing was changed (every check failed): leave the VPN that is up alone
+        // Nothing was connected (every check failed, or stopped before the first try): leave things as they are.
+        // Not judged by "is it still up": a built-in service that is stepping aside still says connected for a moment.
+        guard changed else { return }
         vpn.stopOtherVPNs()
         for m in WindscribeMax.all { _ = await m.stepAside() }
         guard let before else { return }

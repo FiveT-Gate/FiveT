@@ -1797,14 +1797,20 @@ final class VPNManager: ObservableObject {
         s.reconnectTimer = t
     }
 
-    /// This many failed reconnects, then the next VPN takes over (Settings → General → VPN Settings).
+    /// This many failed reconnects, then the next VPN takes over (Settings → VPN → Smart Connect).
     private static let failoverAfter = 3
 
     /// Hands over to the next VPN in the list after `s`, going round to the first at the end, when
-    /// the setting is on and `s` is a VPN. False: nothing else to switch to, `s` keeps retrying.
+    /// the setting is on and `s` is a VPN. A VPN switched off in Smart Connect is skipped.
+    /// False: nothing else to switch to, `s` keeps retrying.
     /// connect() stops `s` ("one VPN at a time", with the kill switch still blocking in between).
+    /// The VPNs a failover goes round: the ones switched on in Smart Connect, and the one that is failing.
+    nonisolated static func failoverRing(_ all: [Connection], off: Set<UUID>, from id: UUID) -> [Connection] {
+        all.filter { $0.isOtherVPN && ($0.id == id || !off.contains($0.id)) }
+    }
+
     private func failOver(from s: TunnelSession) -> Bool {
-        let all = ConnectionStore.shared.connections.filter(\.isOtherVPN)
+        let all = Self.failoverRing(ConnectionStore.shared.connections, off: ConnectionStore.shared.smartOff, from: s.connection.id)
         guard ConnectionStore.shared.autoFailover, s.connection.isOtherVPN,
               let i = all.firstIndex(where: { $0.id == s.connection.id }), all.count > 1 else { return false }
         let next = all[(i + 1) % all.count]

@@ -469,6 +469,10 @@ enum WindscribeCheck {
         check(SmartConnect.pick([(v1, 80, 20, 300), (v2, 90, 10, 400), (v3, nil, nil, nil)]) == v2, "smart connect: the best score wins")
         check(SmartConnect.pick([(v1, 80, 20, 300), (v2, 80, 40, 400)]) == v2, "smart connect: the same score, the faster download wins")
         check(SmartConnect.pick([(v1, nil, nil, nil)]) == nil, "smart connect: nothing worked, nothing picked")
+        var (f1, f2, f3, forti) = (Connection(), Connection(), Connection(), Connection())
+        f1.kind = .v2ray; f2.kind = .v2ray; f3.kind = .openvpn; forti.kind = .fortinet
+        check(VPNManager.failoverRing([f1, forti, f2, f3], off: [f2.id], from: f1.id).map(\.id) == [f1.id, f3.id], "failover: skips Forti and a VPN switched off in Smart Connect")
+        check(VPNManager.failoverRing([f1, f2, f3], off: [f1.id, f2.id], from: f1.id).map(\.id) == [f1.id, f3.id], "failover: the failing VPN stays in the ring though it is switched off")
         let dead = WindscribeCLI.parsePing("5 packets transmitted, 0 packets received, 100.0% packet loss")
         check(!dead.answered && dead.loss == 100, "ping: nothing answered")
         check(!WindscribeCLI.parsePing("ping: cannot resolve nope: Unknown host").answered, "ping: unknown host")
