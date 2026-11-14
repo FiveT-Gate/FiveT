@@ -41,6 +41,8 @@ final class SmartConnect: ObservableObject {
     /// The outcome of the last run, or why one did not start.
     @Published private(set) var notice: String?
     @Published private(set) var noticeIsError = false
+    /// The VPN the notice says is connected; the header stops saying so once it is down (disconnected by hand).
+    @Published private(set) var noticeConnection: UUID?
 
     private var task: Task<Void, Never>?
     /// The side Xray of a background check, while one runs.
@@ -108,9 +110,9 @@ final class SmartConnect: ObservableObject {
             await Task { @MainActor in
                 switch outcome {
                 case .connected(let name, let m):
-                    self.tell("Connected to \(name)" + (m.score.map { ": score \($0)" } ?? "") + (m.speed.map { String(format: " · %.0f Mbit/s", $0) } ?? "") + ".")
+                    self.tell("Connected to \(name)" + (m.score.map { ": score \($0)" } ?? "") + (m.speed.map { String(format: " · %.0f Mbit/s", $0) } ?? "") + ".", connection: self.winner)
                 case .kept(let name):
-                    self.tell("\(name) is already the best one. Nothing changed.")
+                    self.tell("\(name) is already the best one. Nothing changed.", connection: self.winner)
                 case .untouched:
                     self.tell("Stopped. Nothing changed.")
                 case .nothing:
@@ -301,8 +303,10 @@ final class SmartConnect: ObservableObject {
         return (false, "Did not connect in time")
     }
 
-    private func isUp(_ e: Entry) -> Bool {
-        e.builtIn ? WindscribeMax.service(for: e.id)?.connected == true : vpn.status(for: e.id)?.phase == .connected
+    private func isUp(_ e: Entry) -> Bool { isUp(e.id) }
+
+    func isUp(_ id: UUID) -> Bool {
+        WindscribeMax.service(for: id).map { $0.connected } ?? (vpn.status(for: id)?.phase == .connected)
     }
 
     // MARK: Putting things back
@@ -319,9 +323,10 @@ final class SmartConnect: ObservableObject {
         _ = await connect(before)
     }
 
-    private func tell(_ text: String, error: Bool = false) {
+    private func tell(_ text: String, error: Bool = false, connection: UUID? = nil) {
         notice = text
         noticeIsError = error
+        noticeConnection = connection
         if error { vpn.report("Smart Connect: " + text) }   // the menu shows it too, for a run started there
     }
 }
