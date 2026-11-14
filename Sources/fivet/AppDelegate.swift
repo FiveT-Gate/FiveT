@@ -57,7 +57,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.refreshIcon() }
             .store(in: &cancellables)
-        // MCP server for AI assistants: follows the switch in Settings → MCP.
+        // MCP server for AI assistants: follows the switch in Settings → General → MCP.
         store.$mcpEnabled
             .receive(on: DispatchQueue.main)
             .sink { on in on ? MCPServer.shared.start() : MCPServer.shared.stop() }
@@ -149,7 +149,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         // layout without Screen Recording permission.
         if let i = args.firstIndex(of: "--dump-settings") {
             let name = args.dropFirst(i + 1).first
-            let named: [String: SettingsTab] = ["mcp": .assistants, "connections": .connections, "forti": .connections, "smart": .openvpn, "openvpn": .openvpn, "windscribe": .openvpn, "expressvpn": .openvpn, "sso": .sso]
+            let named: [String: SettingsTab] = ["mcp": .general, "connections": .connections, "forti": .connections, "smart": .openvpn, "openvpn": .openvpn, "windscribe": .openvpn, "expressvpn": .openvpn, "sso": .sso]
             if name == "windscribe" { SettingsRouter.shared.picked[.openvpn] = WindscribeMax.rowID }   // the VPN tab with Windscribe Max picked
             if name == "expressvpn" { SettingsRouter.shared.picked[.openvpn] = WindscribeMax.expressRowID }
             if name == "smart" { SettingsRouter.shared.picked[.openvpn] = SmartConnect.rowID }
@@ -222,8 +222,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         // the main thread did not answer: that is how long the window (and the tab animation) froze.
         if args.contains("--time-tabs") {
             showSettings(tab: .connections)
-            let order: [SettingsTab] = [.general, .sso, .assistants, .connections, .general, .sso, .assistants, .connections,
-                                        .general, .sso, .assistants, .connections]
+            let order: [SettingsTab] = [.general, .sso, .connections, .general, .sso, .connections,
+                                        .general, .sso, .connections]
             let lock = NSLock()
             var worst = 0.0
             Thread.detachNewThread {

@@ -1106,7 +1106,7 @@ enum MCPSocket {
                 if alreadyRunning {
                     warn("FiveT is running but not answering. Either it is an older version "
                          + "(quit it from the shield menu and open it again) or \"Let AI assistants control FiveT\" "
-                         + "is off in FiveT → Settings → MCP.")
+                         + "is off in FiveT → Settings → General → MCP.")
                 } else {
                     warn("could not start FiveT.app (expected socket at \(path)). Open FiveT once by hand, then try again.")
                 }
@@ -1390,7 +1390,7 @@ enum FiveTCLI {
 
 // MARK: - Registering FiveT with assistants
 
-/// Writes the `fivet` server entry into the assistants' config files (Settings → MCP).
+/// Writes the `fivet` server entry into the assistants' config files (Settings → General → MCP).
 enum MCPClientSetup {
     /// The command an assistant runs. Inside the bundle this is FiveT.app/Contents/MacOS/FiveT.
     static var command: String {

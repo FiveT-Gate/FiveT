@@ -90,7 +90,7 @@ final class SSOCoordinator: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + left + 0.15) { [weak self] in self?.deliver(id) }
     }
 
-    private func displayName(_ entry: SSOEntry) -> String { entry.name.trimmed.isEmpty ? "One-time code" : entry.name.trimmed }
+    private func displayName(_ entry: SSOEntry) -> String { entry.name.trimmed.isEmpty ? "2FA code" : entry.name.trimmed }
 
     private func finish() {
         // Holding the shortcut repeats it; a short pause keeps one press from typing twice.

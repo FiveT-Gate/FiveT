@@ -165,7 +165,7 @@ struct SSOAddSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Add a one-time code").font(.title3.weight(.semibold))
+            Text("Add a 2FA code").font(.title3.weight(.semibold))
             Text("Paste the secret key or the otpauth:// link your service showed when you set up two-step login, or import its QR code.")
                 .font(.callout).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

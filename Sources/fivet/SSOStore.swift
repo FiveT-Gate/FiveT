@@ -252,7 +252,7 @@ final class SSOStore: ObservableObject {
         let issuer = a.issuer.trimmed
         if !issuer.isEmpty { return issuer }
         let name = a.name.trimmed
-        return name.isEmpty ? "One-time code" : name
+        return name.isEmpty ? "2FA code" : name
     }
 
     struct AddOutcome {

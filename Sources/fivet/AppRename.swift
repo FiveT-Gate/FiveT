@@ -55,7 +55,7 @@ enum AppRename {
     }
 
     /// In the renamed copy, once: start at login (if it was on) is registered again for the new place, and an
-    /// AI assistant's FiveT entry (Settings → MCP) that still runs the old path is pointed at the new one.
+    /// AI assistant's FiveT entry (Settings → General → MCP) that still runs the old path is pointed at the new one.
     static func finish() {
         let defaults = UserDefaults.standard
         guard defaults.bool(forKey: renamedKey) else { return }

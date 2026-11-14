@@ -49,8 +49,6 @@ struct SmartConnectTab: View {
             }
             Section("Built in") {
                 ForEach(entries.filter(\.builtIn)) { SmartRow(entry: $0) }
-                Text("A VPN that is switched off here is skipped. The check does not touch your connection: V2Ray and Outline servers are tried on the side, Windscribe Max and Express Max use the best result of their last scan, and OpenVPN uses what was measured the last time it was up. Only then the best one is connected. Forti stays as it is.")
-                    .font(.subheadline).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)

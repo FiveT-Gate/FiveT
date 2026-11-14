@@ -41,7 +41,7 @@ private struct DisclosureHeader: View {
 
 /// `connections` is the Forti tab (FortiGate connections); OpenVPN connections have their own, the VPN tab.
 enum SettingsTab: Hashable, CaseIterable {
-    case connections, openvpn, sso, assistants, general
+    case connections, openvpn, sso, general
 
     /// The tab that lists `c`: OpenVPN and V2Ray are on the VPN tab.
     static func of(_ c: Connection) -> SettingsTab { c.isOtherVPN ? .openvpn : .connections }
@@ -121,7 +121,6 @@ struct SettingsPage: View {
             case .openvpn: ConnectionsTab(kind: .openvpn)
             case .sso: SSOTab()
             case .general: GeneralTab()
-            case .assistants: AssistantsTab()
             }
         }
         .padding(12)
@@ -1133,6 +1132,7 @@ struct SetupSections: View {
     @ObservedObject private var flow = SetupFlow.shared
     @ViewState private var checks: [SetupCheck] = []
     @ViewState private var diagnosticsMessage: String?
+    @ViewState private var setupOpen = false   // folded, unless a check fails (see refresh)
 
     /// The banner at the top reports a setup while it is shown; this section does otherwise
     /// (Install Helper… for a newer openfortivpn).
@@ -1143,24 +1143,30 @@ struct SetupSections: View {
 
     var body: some View {
         Group {
-            Section("Setup") {
-                ForEach(shownChecks) { c in
-                    HStack(alignment: .center, spacing: 10) {
-                        Image(systemName: c.ok ? "checkmark.circle.fill" : "xmark.circle.fill")
-                            .foregroundStyle(c.ok ? Color.green : Color.red)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(c.title)
-                            if let h = c.hint { Text(h).font(.subheadline).foregroundStyle(.secondary) }
-                        }
-                        Spacer()
-                        if c.fix == .installHelper {
-                            Button("Install Helper…") { flow.run() }
-                                .disabled(flow.working)
+            Section {
+                DisclosureHeader(title: "Setup", open: setupOpen,
+                                 help: setupOpen ? "Hide the setup checks" : "Show the setup checks: what FiveT needs on this Mac") {
+                    setupOpen.toggle()
+                }
+                if setupOpen {
+                    ForEach(shownChecks) { c in
+                        HStack(alignment: .center, spacing: 10) {
+                            Image(systemName: c.ok ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                .foregroundStyle(c.ok ? Color.green : Color.red)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(c.title)
+                                if let h = c.hint { Text(h).font(.subheadline).foregroundStyle(.secondary) }
+                            }
+                            Spacer()
+                            if c.fix == .installHelper {
+                                Button("Install Helper…") { flow.run() }
+                                    .disabled(flow.working)
+                            }
                         }
                     }
+                    if checks.isEmpty || (flow.working && !bannerShown) { ProgressView().controlSize(.small) }
                 }
-                if checks.isEmpty || (flow.working && !bannerShown) { ProgressView().controlSize(.small) }
-                // Progress and errors; a success shows in the rows turning green.
+                // Progress and errors stay visible when folded; a success shows in the rows turning green.
                 if !bannerShown, flow.working || flow.failed, let m = flow.message { Text(m).font(.body) }
             }
             Section("Troubleshooting") {
@@ -1188,7 +1194,10 @@ struct SetupSections: View {
     private func refresh() {
         DispatchQueue.global(qos: .userInitiated).async {
             let result = Setup.checks()
-            DispatchQueue.main.async { if result != checks { checks = result } }   // same answers: no redraw
+            DispatchQueue.main.async {
+                if result != checks { checks = result }   // same answers: no redraw
+                if result.contains(where: { !$0.ok }) { setupOpen = true }   // a problem is never hidden
+            }
         }
     }
 }
@@ -1292,6 +1301,7 @@ struct GeneralTab: View {
                 UpdateRow()
                 Toggle("Install updates automatically", isOn: $store.autoUpdate)
             }
+            MCPSection()
             Section {
                 DisclosureHeader(title: "Backup", open: backupOpen,
                                  help: backupOpen ? "Hide the backup" : "Show the backup: export and import all connections and settings") {
@@ -1307,22 +1317,23 @@ struct GeneralTab: View {
                         .font(.subheadline).foregroundStyle(.secondary)
                 }
             }
+            SetupSections()
             Section("About") {
                 Link("FiveT on GitHub", destination: Self.repositoryURL)
             }
-            SetupSections()
         }
         .formStyle(.grouped)
     }
 }
 
-// MARK: - AI Assistants (MCP)
+// MARK: - AI Assistants (MCP): a fold-out in General
 
-struct AssistantsTab: View {
+struct MCPSection: View {
     @ObservedObject var store = ConnectionStore.shared
     @ObservedObject var mcp = MCPServer.shared
     @ViewState private var message: String?
     @ViewState private var working = false
+    @ViewState private var open = false
 
     private var statusText: String {
         guard store.mcpEnabled else { return "Off" }
@@ -1335,39 +1346,40 @@ struct AssistantsTab: View {
     }
 
     var body: some View {
-        Form {
-            Section {
+        Section {
+            DisclosureHeader(title: "MCP", open: open,
+                             help: open ? "Hide the MCP settings" : "Show the MCP settings: let AI assistants control FiveT") {
+                open.toggle()
+            }
+            if open {
                 Toggle("Let AI assistants control FiveT", isOn: $store.mcpEnabled)
                 LabeledContent("Status") { Text(statusText).foregroundStyle(.secondary) }
-            } footer: {
                 Text("Assistants never see your passwords or one-time codes.")
                     .font(.subheadline).foregroundStyle(.secondary)
-            }
-            Section("Add FiveT to") {
-                HStack {
-                    Button("Claude Desktop") {
-                        run { MCPClientSetup.add(to: MCPClientSetup.claudeDesktopConfig, appName: "Claude Desktop") }
+                LabeledContent("Add FiveT to") {
+                    HStack {
+                        Button("Claude Desktop") {
+                            run { MCPClientSetup.add(to: MCPClientSetup.claudeDesktopConfig, appName: "Claude Desktop") }
+                        }
+                        Button("Claude Code") { run { MCPClientSetup.addToClaudeCode() } }
+                        Button("Cursor") {
+                            run { MCPClientSetup.add(to: MCPClientSetup.cursorConfig, appName: "Cursor") }
+                        }
+                        if working { ProgressView().controlSize(.small) }
+                        // Any other MCP client: the same entry, to paste into its settings.
+                        Button("Copy JSON") {
+                            let pb = NSPasteboard.general
+                            pb.clearContents()
+                            pb.setString(MCPClientSetup.snippet, forType: .string)
+                            message = "Copied. Paste it into the app's MCP settings."
+                        }
+                        .buttonStyle(.link)
                     }
-                    Button("Claude Code") { run { MCPClientSetup.addToClaudeCode() } }
-                    Button("Cursor") {
-                        run { MCPClientSetup.add(to: MCPClientSetup.cursorConfig, appName: "Cursor") }
-                    }
-                    if working { ProgressView().controlSize(.small) }
-                    Spacer()
-                    // Any other MCP client: the same entry, to paste into its settings.
-                    Button("Copy JSON") {
-                        let pb = NSPasteboard.general
-                        pb.clearContents()
-                        pb.setString(MCPClientSetup.snippet, forType: .string)
-                        message = "Copied. Paste it into the app's MCP settings."
-                    }
-                    .buttonStyle(.link)
+                    .disabled(working)
                 }
-                .disabled(working)
                 if let m = message { Text(m).font(.body).textSelection(.enabled) }
             }
         }
-        .formStyle(.grouped)
     }
 
     private func run(_ action: @escaping () -> String) {

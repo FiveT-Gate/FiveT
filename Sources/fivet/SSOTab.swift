@@ -23,7 +23,7 @@ struct SSOTab: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
+            if !store.entries.isEmpty { header }   // with no codes, the empty state alone fills the tab
             if !center.typingAllowed { SSOPermissionBanner() }
             if let notice {
                 SSONoticeBanner(notice: notice) { self.notice = nil }
@@ -37,7 +37,7 @@ struct SSOTab: View {
         .sheet(isPresented: $showingAdd) {
             SSOAddSheet { accounts, name, clipboard in adopt(accounts, name: name, clipboard: clipboard) }
         }
-        .alert("Remove “\(pendingRemoval.map { $0.name.trimmed.isEmpty ? "One-time code" : $0.name } ?? "")”?",
+        .alert("Remove “\(pendingRemoval.map { $0.name.trimmed.isEmpty ? "2FA code" : $0.name } ?? "")”?",
                isPresented: Binding(get: { pendingRemoval != nil }, set: { if !$0 { pendingRemoval = nil } }),
                presenting: pendingRemoval) { entry in
             Button("Remove", role: .destructive) {
@@ -80,18 +80,15 @@ struct SSOTab: View {
     private var header: some View {
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("One-time codes").font(.title3.weight(.semibold))
+                Text("2FA codes").font(.title3.weight(.semibold))
                 Text("Press a code's shortcut in any app and FiveT types its current code. Works while FiveT is running.")
                     .font(.callout).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 12)
-            // With no codes yet the empty state carries the one big button.
-            if !store.entries.isEmpty {
-                Button { showingAdd = true } label: { Label("Add Code…", systemImage: "plus") }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.regular)
-            }
+            Button { showingAdd = true } label: { Label("Add Code…", systemImage: "plus") }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.regular)
         }
         .padding(.horizontal, 20)
         .padding(.top, 14)
@@ -122,7 +119,7 @@ struct SSOTab: View {
             Image(systemName: "lock.rotation")
                 .font(.system(size: 40, weight: .light))
                 .foregroundStyle(.secondary)
-            Text("Sign in faster with your one-time codes").font(.title3.weight(.semibold))
+            Text("Sign in faster with your 2FA codes").font(.title3.weight(.semibold))
             Text("Add the secret key or QR code your service gave you for two-step login. Give it a shortcut, and FiveT types the current code wherever you press it.")
                 .font(.callout).foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

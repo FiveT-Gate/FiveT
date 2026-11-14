@@ -30,7 +30,7 @@ final class ConnectionStore: ObservableObject {
     @Published var smartOff: Set<UUID> { didSet { persist() } }
     /// V2Ray and Outline: .ir names and Iranian addresses skip the server and go direct.
     @Published var bypassIran: Bool { didSet { persist() } }
-    /// Settings → MCP: run the MCP server so assistants can control the app.
+    /// Settings → General → MCP: run the MCP server so assistants can control the app.
     @Published var mcpEnabled: Bool { didSet { persist() } }
     /// Settings → General: download updates in the background and install them when no tunnel is up.
     @Published var autoUpdate: Bool { didSet { persist() } }
