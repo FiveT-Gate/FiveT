@@ -1,6 +1,7 @@
-# FiveT
+# FiveT for Mac
 
-One-click FortiGate SSL-VPN from the macOS menu bar. Native Swift app, no FortiClient needed.
+One-click FortiGate SSL-VPN, OpenVPN, V2Ray and Outline from the macOS menu bar. Native Swift app, no FortiClient needed.
+This is the technical guide to the Mac app. FiveT also has a Windows app, documented in [windows/README.md](../windows/README.md).
 
 Click the shield icon in the menu bar, click a connection name, and you are connected.
 Click it again to disconnect. The icon shows the state:
@@ -27,7 +28,7 @@ Click it again to disconnect. The icon shows the state:
   A code is valid for one login per 30-second window, so reconnecting inside the window in which you last
   logged in waits for the next code (the menu line says `Waiting 12s for a fresh code…`); a code with only a
   few seconds left is skipped for the next one; and a login the gateway rejects is retried once with a fresh
-  code before an error is shown (unless that would be the failed-login limit). Lab has no code and connects in about 3 seconds.
+  code before an error is shown (unless that would be the failed-login limit).
 - Starting a tunnel needs root, so a one-time "helper" installs a sudoers rule that allows exactly one
   command without a password: FiveT's small root script, which starts and stops tunnels and manages
   split-DNS files. It never runs the openfortivpn inside FiveT.app (or Homebrew's): those files belong to
@@ -36,15 +37,15 @@ Click it again to disconnect. The icon shows the state:
   The password goes to it through a pipe and is never written to disk.
 - The gateway's certificate is checked before any password or code is sent. See "Gateway certificates".
 
-## First-time setup (works while your personal VPN is ON)
+## First-time setup (works while another VPN is on)
 
 1. Open **/Applications/FiveT.app**. A shield icon appears in the menu bar (top right). On a Mac where
    FiveT was never set up, Settings opens by itself on the **General** tab.
 2. Click **Set Up FiveT** and type your Mac password. That is all: openfortivpn comes with the app.
 
 Closed Settings first? The shield menu shows **Set Up FiveT…**, and clicking a connection sets FiveT up
-(one password prompt) and then connects. Updating from 1.4.3 or older: the helper needs the same one-time
-step (security update); until then the menu shows **Set Up FiveT…** and connecting says so.
+(one password prompt) and then connects. Updating from 1.17 or older: FiveT's internal name changed in 1.18,
+so the helper needs the same one-time step; until then the menu shows **Set Up FiveT…** and connecting says so.
 
 **Updates need no click (helper v6 and newer).** The helper can replace itself and the root-owned copies of
 openfortivpn, OpenVPN and Xray from the FiveT.app it is updated with: FiveT runs `refresh <path of FiveT.app>`
@@ -68,21 +69,21 @@ plain `swift build`).
 Building: `./build.sh` also builds the bundled openfortivpn the first time (about a minute; needs
 `brew install autoconf automake pkgconf oxipng` on the build Mac, and downloads the pinned openfortivpn
 and OpenSSL sources once into `build/deps`, checked against their SHA-256). OpenSSL is built without the
-parts a VPN client never uses, and the app's binary is stripped, so FiveT.app is 5.1 MB (8.3 MB in 1.7.2);
+parts a VPN client never uses, and the app's binary is stripped;
 `./build.sh --dmg` keeps the unstripped binary in `build/symbols` for reading crash logs.
 
-## Test runbook (your personal VPN must be OFF)
+## Test runbook (any other VPN must be OFF)
 
-FortiGate gateways do not answer while the personal VPN is on, so Claude will be offline during this part.
+A FortiGate gateway may not answer while another VPN that takes all of the Mac's traffic is on, so switch it off for this check.
 
-1. Turn your personal VPN off.
+1. Turn the other VPN off.
 2. Click the shield → click **Office**. The icon animates for a few seconds, then shows a check mark.
    The menu line reads `Office — Connected 0:05` and keeps counting.
 3. Open something that only works on the Office network to confirm.
 4. Click the shield → click **Office** again. The icon returns to the outline shield.
 5. Repeat steps 2–4 for **Lab**.
-6. Whatever happened, open shield → **Settings** → **General** tab → **Copy Diagnostics**. Turn your personal VPN back on and
-   paste the clipboard into the chat. It contains the setup checks and the last log lines, never the passwords.
+6. Whatever happened, open shield → **Settings** → **General** tab → **Copy Diagnostics**. Turn the other VPN back on and
+   paste the clipboard text into your bug report. It contains the setup checks and the last log lines, never the passwords.
 
 ## One VPN at a time, next to Forti
 
@@ -94,7 +95,7 @@ VPN's: connecting, disconnecting or losing a Forti connection never lifts or set
 
 ## Kill switch
 
-**Settings → General → Kill switch** (off by default) covers connections that carry all of the Mac's
+**Settings → General → VPN Settings → Kill Switch** (off by default) covers connections that carry all of the Mac's
 traffic: V2Ray, Outline, and OpenVPN profiles that redirect the gateway. When such a connection goes down
 without having been switched off (a drop, a tunnel that stopped answering, a network change), the helper
 loads packet filter rules (`ks-on`, anchor `com.apple/100.fivet`) that let nothing leave the Mac except to
@@ -293,14 +294,22 @@ not running resets it (only do that when you are sure the gateway has not banned
 
 ## Signing and notarization
 
-Builds are signed ad-hoc unless `signing.env` exists next to `build.sh`. Copy `signing.env.example` to
-`signing.env` and follow its two steps (an Apple Developer Program membership, USD 99 per year, plus a
-one-time `notarytool store-credentials`). From then on `./build.sh --dmg` signs the app
-with the Developer ID and hardened runtime, notarize the app and the DMG with Apple, and staple the
-tickets, so a download opens with no "cannot verify the developer" step. `signing.env` holds only the
-certificate name and the keychain profile name; the secrets stay in the keychain. Once signing is active,
-drop the "Open Anyway" step from `Resources/ReadMe-DMG.txt`, the disk image window's artwork
-(`Resources/dmg/background.html`).
+Builds are signed ad-hoc unless `signing.env` exists next to `build.sh`. An ad-hoc build is fine for a copy
+that stays on the Mac that built it; `./build.sh --dmg` refuses one, because macOS would forget FiveT's
+Accessibility permission after every update. Copy `signing.env.example` to `signing.env` and pick one of its
+two options:
+
+- **A self-signed certificate** named "FiveT" in the login keychain (free). The published releases use this.
+  macOS still asks new users to confirm the first open (**Open Anyway**), as with ad-hoc.
+- **A Developer ID** (an Apple Developer Program membership, USD 99 per year, plus a one-time
+  `notarytool store-credentials`). `./build.sh --dmg` then signs the app with the Developer ID and hardened
+  runtime, notarizes the app and the DMG with Apple, and staples the tickets, so a download opens with no
+  "cannot verify the developer" step. Switching from the first option to this one changes the signing identity:
+  every Mac then allows FiveT under Accessibility once more.
+
+`signing.env` holds only the certificate's name or hash and the keychain profile name; the secrets stay in the
+keychain. Once notarized signing is active, drop the "Open Anyway" step from `Resources/ReadMe-DMG.txt`, from
+the README and from the disk image window's artwork (`Resources/dmg/background.html`).
 
 ## AI assistants (MCP)
 
@@ -308,7 +317,7 @@ FiveT is also an **MCP server** (Model Context Protocol), so an AI assistant suc
 Claude Code or Cursor can check the VPN status, connect, disconnect, read the log and diagnose
 DNS/reachability problems, for example "connect to Office and tell me when it is up".
 
-Shield → **Settings** → **MCP** tab:
+Shield → **Settings** → **General** → **MCP** (a section that folds out):
 
 - The switch **Let AI assistants control FiveT** turns the server on or off (on by default).
 - **Add FiveT to: Claude Desktop / Claude Code / Cursor** registers FiveT in that assistant with one
@@ -325,6 +334,15 @@ Shield → **Settings** → **MCP** tab:
 | `get_diagnostics` | the same text as Copy Diagnostics |
 | `resolve` | `{host}` — answer from the tunnel's DNS servers *and* from the system resolver |
 | `check_reachability` | `{host, port=443}` — DNS both ways, route check, TCP connect, plain-language diagnosis |
+| `get_settings` | the switches: `kill_switch`, `bypass_iranian_websites`, `failover`, `apps_only`, `vpn_apps`, `auto_reconnect`, `watchdog`, `show_name_in_menu_bar` |
+| `set_settings` | only the switches given; `vpn_apps` replaces the whole list. **Lowering protection asks you first** (below) |
+| `unblock_internet` | lifts a kill switch block, **after you say yes in a dialog** |
+| `export_settings`, `import_settings` | `{path}` — write or read a `.fivet` backup of all connections and settings, **after you say yes in a dialog** |
+
+**Lowering protection needs your yes.** When an assistant asks to turn the kill switch off, send only chosen apps
+through the VPN, send Iranian websites around the VPN, or lift a kill switch block, FiveT asks you in a dialog on
+the Mac; if you decline, nothing changes. Turning protection on needs no question. A backup file holds passwords and
+one-time-code secrets, so exporting or importing one always asks, and no password is ever returned in a reply.
 
 `connect` and `disconnect` report the real outcome (or the error). Every call is written to the log.
 
@@ -347,6 +365,10 @@ $F disconnect
 $F log --lines 50 --level info --connection Office --since 2026-09-05T19:00:00Z --grep auth
 $F resolve wiki.corp.example
 $F check wiki.corp.example 443
+$F settings               # the switches
+$F set kill_switch on     # one switch (on|off); lowering protection asks you in a dialog first
+$F unblock                # lift a kill switch block (asks you first)
+$F export backup.fivet    # encrypted backup of all connections and settings (asks you first)
 $F status --json          # any command: the same JSON the MCP tools return
 $F --help
 ```
@@ -359,7 +381,7 @@ macOS installs the FortiGate's DNS servers as a resolver *scoped* to the tunnel 
 VPN (a `utun`) owns the default route, normal apps (curl, Python, browsers) never ask that resolver, so
 internal names such as `wiki.corp.example` fail while `nslookup name 10.0.0.53` works.
 
-Fix: Settings → Forti (or OpenVPN) → the connection → **DNS domains**, e.g. `corp.example, intranet.example`. While that
+Fix: Settings → Forti (or VPN) → the connection → **DNS domains**, e.g. `corp.example, intranet.example`. While that
 connection is up, FiveT writes `/etc/resolver/<domain>` for those domains and for the DNS suffixes the
 gateway pushes, pointing at the pushed DNS servers, and removes the files on disconnect (also on quit, and
 at the next launch any a crash left behind, found by the `# managed by FiveT` first line). This needs the
@@ -416,8 +438,9 @@ page can open a link too (browsers ask first), so a link that would connect alwa
 never change settings, start FiveT's setup, trust a certificate or show a secret; a wrong name turns the
 shield red with a fixed message, and the log says which name was asked for.
 
-The **General** tab has "Start FiveT at login", the reconnect switches, "Show the connection name in the
-menu bar", updates, setup status and troubleshooting.
+The **General** tab has the setup status, "Start FiveT at login", the reconnect switches, "Show the connection
+name in the menu bar", VPN Settings (Kill Switch, VPN for Chosen Apps, Bypass Iranian Websites), updates, MCP,
+Backup and troubleshooting.
 
 ## Files
 
@@ -501,7 +524,7 @@ never Always Allow. `Tools/update-signing/main.swift` explains the tool.
   never shipped (no `DISTRIBUTION`) accept.
 
 Releases are published on this repository's Releases page: the installer and `latest.json`, the signed
-feed every copy reads.
+feed every copy reads. The Windows app's releases (tags `windows-v…`) are on the same page, with their own feed.
 
 Version control: the project is a git repository (`git log` for history). The seeded connections
 live in `Sources/fivet/LocalSeeds.swift`, which is git-ignored so the credentials never enter history;

@@ -1,5 +1,7 @@
-FiveT — one-click FortiGate SSL-VPN from the macOS menu bar
-============================================================
+FiveT — one-click VPN connections from the macOS menu bar
+==========================================================
+
+FortiGate SSL-VPN, OpenVPN, V2Ray and Outline. FiveT also has a Windows version.
 
 Requires a Mac with Apple silicon (M1 or newer) and macOS 13 or newer.
 Switch colours in Settings follow System Settings > Appearance > Accent colour.
@@ -46,9 +48,12 @@ https://github.com/FiveT-Gate/FiveT/releases/latest
 
 OPEN SOURCE
 -----------
-FiveT includes openfortivpn (GNU GPL v3) built with OpenSSL (Apache License 2.0).
-Their licenses and source code links are in
-FiveT.app/Contents/Resources/openfortivpn-licenses.
+FiveT includes openfortivpn (GNU GPL v3), OpenVPN (GNU GPL v2), Xray-core (Mozilla
+Public License 2.0), OpenSSL (Apache License 2.0), LZO (GNU GPL v2) and LZ4 (BSD).
+Their licenses and source code links are in the folders
+openfortivpn-licenses, openvpn-licenses and xray-licenses inside
+FiveT.app/Contents/Resources. FiveT's own source code is at
+https://github.com/FiveT-Gate/FiveT
 
 UNINSTALL
 ---------

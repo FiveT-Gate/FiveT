@@ -139,7 +139,7 @@ strip -x "$OUT/openfortivpn"
 codesign --force --sign - "$OUT/openfortivpn"   # strip drops the linker's signature; arm64 runs nothing unsigned
 cp "$SRC/LICENSE" "$OUT/licenses/openfortivpn-LICENSE.txt"
 cp "$SRC/LICENSE.OpenSSL" "$OUT/licenses/openfortivpn-LICENSE.OpenSSL.txt"
-# GPL: the scripts that control the build are part of the source, and FiveT's repository is private.
+# GPL: the scripts that control the build are part of the source, so they ship inside the app next to the licenses.
 cp Tools/build-openfortivpn.sh "$OUT/licenses/build-openfortivpn.sh"
 tar -xzOf "$DEPS/openssl-$SSL_VERSION.tar.gz" "openssl-$SSL_VERSION/LICENSE.txt" > "$OUT/licenses/OpenSSL-LICENSE.txt"
 echo "$OFV_VERSION (OpenSSL $SSL_VERSION)" > "$OUT/VERSION"   # build.sh puts it in Info.plist for Settings

@@ -360,7 +360,7 @@ final class MCPServer: ObservableObject {
     }
 
     static let instructions = """
-        FiveT is a macOS menu bar app that manages FortiGate SSL-VPN connections (via openfortivpn). \
+        FiveT is a macOS menu bar app that manages FortiGate SSL-VPN (via openfortivpn), OpenVPN, V2Ray and Outline connections. \
         Use list_connections to see the saved connections and get_status for the current state, including \
         the tunnel interface, the DNS servers and routes the gateway pushed. connect starts a tunnel and by \
         default waits until it is up or has failed (about 1 s when the gateway answers; up to timeout_seconds); \
@@ -1190,7 +1190,7 @@ enum MCPBridge {
 /// is unreachable), 2 usage error, 3 FiveT.app could not be reached.
 enum FiveTCLI {
     static let usage = """
-        FiveT \(MCPPaths.appVersion) — FortiGate SSL-VPN from the command line
+        FiveT \(MCPPaths.appVersion) — VPN connections from the command line
 
         usage: FiveT <command> [options]
 
