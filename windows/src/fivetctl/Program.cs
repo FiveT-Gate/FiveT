@@ -29,7 +29,7 @@ internal static class Program
         }
     }
 
-    public static string Usage => $@"FiveT {Paths.AppVersion} — FortiGate SSL-VPN from the command line
+    public static string Usage => $@"FiveT {Paths.AppVersion} — VPN connections from the command line
 
 usage: fivetctl <command> [options]
 
