@@ -58,6 +58,16 @@ struct SmartConnectTab: View {
 
 private struct SmartHeader: View {
     @ObservedObject var smart = SmartConnect.shared
+    // Watched so a "Connected to …" notice is redrawn when that VPN goes down.
+    @ObservedObject var vpn = VPNManager.shared
+    @ObservedObject var windscribe = WindscribeMax.windscribe
+    @ObservedObject var express = WindscribeMax.express
+
+    /// The last run's notice, unless it says a VPN is connected that is down by now.
+    private var notice: String? {
+        guard let id = smart.noticeConnection, !smart.isUp(id) else { return smart.notice }
+        return smart.entries.first { $0.id == id }.map { "Disconnected from \($0.name)." }
+    }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -69,7 +79,7 @@ private struct SmartHeader: View {
                         ProgressView().controlSize(.small)
                         Text(smart.step).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
                     }
-                } else if let n = smart.notice {
+                } else if let n = notice {
                     Text(n).font(.subheadline).foregroundStyle(smart.noticeIsError ? Color.red : .secondary).lineLimit(2)
                 } else {
                     Text("Checks every VPN that is switched on in the background, then connects the one with the best score.")
