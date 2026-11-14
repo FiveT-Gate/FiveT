@@ -112,6 +112,11 @@ plutil -insert FiveTOpenfortivpnVersion -string "$(cat "$OFV/VERSION")" "$APP/Co
 plutil -insert FiveTOpenVPNVersion -string "$(cat "$OVPN/VERSION")" "$APP/Contents/Info.plist"
 plutil -insert FiveTXrayVersion -string "$(cat "$XRAY/VERSION")" "$APP/Contents/Info.plist"
 cp "$ICNS" "$APP/Contents/Resources/AppIcon.icns"
+# The picture the Windscribe Max panel shows when Windscribe is not installed (the panel copes without it).
+[ -f Resources/windscribe-missing.png ] && cp Resources/windscribe-missing.png "$APP/Contents/Resources/windscribe-missing.png"
+# Windscribe's own logo (the icon of its app, 128 px) for the Windscribe Max row and header.
+[ -f Resources/windscribe-logo.png ] && cp Resources/windscribe-logo.png "$APP/Contents/Resources/windscribe-logo.png"
+[ -f Resources/expressvpn-logo.png ] && cp Resources/expressvpn-logo.png "$APP/Contents/Resources/expressvpn-logo.png"
 # The root helper's own text, sealed inside the app: the installed helper's `refresh` takes the new helper
 # from here, after checking the app's signature (Setup.swift), so an update needs no admin password.
 "$SCRATCH/release/fivet" --print-helper > "$APP/Contents/Resources/fivet-helper.sh"

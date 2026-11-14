@@ -121,6 +121,12 @@ if let first = cliArgs.first {
             }
         }
         checkApp.run()
+    case "--check-windscribe":
+        // Windscribe Max's parsers against sample output, and (read only) what Windscribe on this Mac says.
+        exit(WindscribeCheck.run())
+    case "--check-expressvpn":
+        // Express Max's parsers against sample output, and (read only) what ExpressVPN on this Mac says.
+        exit(ExpressCheck.run())
     case "--print-install":
         // The root shell command Install Helper… runs (no secrets in it), for checking its syntax.
         print(Setup.installCommands(sources: [URL(fileURLWithPath: Setup.bundledOpenfortivpnPath)], openvpn: Setup.bundledOpenVPNPath,

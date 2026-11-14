@@ -53,6 +53,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.refreshIcon() }
             .store(in: &cancellables)
+        NotificationCenter.default.publisher(for: .windscribeScanChanged)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.refreshIcon() }
+            .store(in: &cancellables)
         // MCP server for AI assistants: follows the switch in Settings → MCP.
         store.$mcpEnabled
             .receive(on: DispatchQueue.main)
@@ -121,7 +125,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         // Debug helpers: `open FiveT.app --args --setup` opens Settings directly.
         let args = CommandLine.arguments
         if args.contains("--setup") { showSettings(tab: .general) }
-        else if args.contains("--settings") { showSettings(tab: .connections) }
+        else if args.contains("--settings") {
+            // `--settings windscribe` (or `expressvpn`) opens the VPN tab on Windscribe Max (with FIVET_WINDSCRIBE_CLI=none in a test copy: its "not installed" screen).
+            if args.contains("windscribe") { SettingsRouter.shared.picked[.openvpn] = WindscribeMax.rowID; showSettings(tab: .openvpn) }
+            else if args.contains("expressvpn") { SettingsRouter.shared.picked[.openvpn] = WindscribeMax.expressRowID; showSettings(tab: .openvpn) }
+            else if args.contains("smart") { SettingsRouter.shared.picked[.openvpn] = SmartConnect.rowID; showSettings(tab: .openvpn) }
+            else { showSettings(tab: .connections) }
+        }
         // `--self-update` (test hook): check the feed and install whatever newer version it names at once.
         if args.contains("--self-update") {
             Updater.shared.$state.receive(on: DispatchQueue.main).sink { st in
@@ -134,12 +144,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             }.store(in: &cancellables)
             Updater.shared.check()
         }
-        // `--dump-settings [connections|openvpn|general|mcp]` renders the Settings window (title bar
+        // `--dump-settings [connections|openvpn|smart|windscribe|general|mcp]` renders the Settings window (title bar
         // included) on that tab (General by default) to a PNG and quits; used to check the window
         // layout without Screen Recording permission.
         if let i = args.firstIndex(of: "--dump-settings") {
             let name = args.dropFirst(i + 1).first
-            let named: [String: SettingsTab] = ["mcp": .assistants, "connections": .connections, "forti": .connections, "openvpn": .openvpn]
+            let named: [String: SettingsTab] = ["mcp": .assistants, "connections": .connections, "forti": .connections, "smart": .openvpn, "openvpn": .openvpn, "windscribe": .openvpn, "expressvpn": .openvpn]
+            if name == "windscribe" { SettingsRouter.shared.picked[.openvpn] = WindscribeMax.rowID }   // the VPN tab with Windscribe Max picked
+            if name == "expressvpn" { SettingsRouter.shared.picked[.openvpn] = WindscribeMax.expressRowID }
+            if name == "smart" { SettingsRouter.shared.picked[.openvpn] = SmartConnect.rowID }
             showSettings(tab: name.flatMap { named[$0] } ?? .general)
             // FIVET_DUMP_HEIGHT=1400: a taller window, to see the bottom of a long form in one picture.
             if let h = ProcessInfo.processInfo.environment["FIVET_DUMP_HEIGHT"].flatMap(Double.init), let w = settingsWindow {
@@ -243,17 +256,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { step(0, []) }
         }
         // `--dump-menu` writes the menu-bar menu's lines to the log ("--" a separator, "## " a
-        // section title, "(off)" a greyed-out line) and quits: the menu's layout without a screenshot.
+        // section title, "(off)" a greyed-out line, "[icon]" a line with a picture) and quits: the menu's layout without a screenshot.
         if args.contains("--dump-menu") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [self] in
                 rebuildMenu()
                 let lines = menu.items.map { i -> String in
                     if i.isSeparatorItem { return "--" }
                     if #available(macOS 14, *), i.isSectionHeader { return "## " + i.title }
-                    return i.title + (i.isEnabled ? "" : " (off)")
+                    return i.title + (i.isEnabled ? "" : " (off)") + (i.attributedTitle == nil ? "" : " [icon]")
                 }
-                Log.shared.write("menu dump:\n" + lines.joined(separator: "\n"))
+                let appItems = NSApp.mainMenu?.items.first?.submenu?.items ?? []
+                let appLines = appItems.map { i -> String in
+                    if i.isSeparatorItem { return "--" }
+                    let pictured = i.attributedTitle != nil || i.image != nil
+                    return i.title + (pictured ? " [icon]" : "")
+                }
+                Log.shared.write("menu dump:\n" + lines.joined(separator: "\n") + "\napp menu (top of the screen):\n" + appLines.joined(separator: "\n"))
                 NSApp.terminate(nil)
+            }
+        }
+        // `--pop-menu` opens the menu-bar menu at a fixed spot on screen after launch (the icon itself may be hidden in a full menu bar), to take a picture of it with screencapture.
+        if args.contains("--pop-menu") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [self] in
+                rebuildMenu()
+                menu.popUp(positioning: nil, at: NSPoint(x: 300, y: 800), in: nil)
             }
         }
         if args.contains("--dump-statusitem") {
@@ -277,6 +303,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         vpn.shutdownCleanup()     // never leave /etc/resolver files behind
         Updater.shared.installAtQuit()
         store.flush()             // a settings change from the last half second
+        MainActor.assumeIsolated { WindscribeMax.all.forEach { $0.stopForQuit() } }   // never leave a built-in VPN on a scan's test route
+        MainActor.assumeIsolated { SmartConnect.shared.stopForQuit() }
     }
 
     /// sso.json, and any sso.unreadable-*.json set aside from it, in FiveT's data folder.
@@ -336,13 +364,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         return img
     }
 
+    /// A solid shield with a magnifying glass cut out of it: the icon while Windscribe Max scans. Cut out
+    /// (not drawn over), so it stays a template image that follows the menu bar's colours. It sits on the
+    /// 17 × 20 pt canvas of the "off" icon (shield.slash.fill) at the same height. The off icon looks bigger than
+    /// its 12.1 × 14.6 pt shield, because its slash reaches out to 14.9 × 14.9 pt, so this shield is drawn
+    /// 6% larger than a plain one (15 pt symbols, measured through `symbol()`): about 13 × 15.4 pt. It is
+    /// a larger symbol, not a scaled picture: scaling blurred its edges.
+    private func scanningSymbol() -> NSImage? {
+        let k: CGFloat = 1.06
+        guard let reference = NSImage(systemSymbolName: "shield.slash.fill", accessibilityDescription: nil)?
+                  .withSymbolConfiguration(.init(pointSize: 15, weight: .medium)),
+              let shield = NSImage(systemSymbolName: "shield.fill", accessibilityDescription: "FiveT")?
+                  .withSymbolConfiguration(.init(pointSize: 15 * k, weight: .medium)),
+              let glass = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil)?
+                  .withSymbolConfiguration(.init(pointSize: 8 * k, weight: .heavy)) else { return nil }
+        let centre = CGPoint(x: 8.81, y: 9.56 + 0.47 * k)   // the shield's own box is a little off-centre from its ink
+        let img = NSImage(size: reference.size, flipped: false) { _ in
+            shield.draw(in: NSRect(x: centre.x - shield.size.width / 2, y: centre.y - shield.size.height / 2,
+                                   width: shield.size.width, height: shield.size.height))
+            let g = glass.size
+            glass.draw(in: NSRect(x: centre.x - g.width / 2, y: centre.y - g.height / 2, width: g.width, height: g.height),
+                       from: .zero, operation: .destinationOut, fraction: 1)
+            return true
+        }
+        img.isTemplate = true
+        img.accessibilityDescription = "FiveT"
+        return img
+    }
+
     private func refreshIcon() {
         guard let button = statusItem?.button else { return }
+        let scanning = MainActor.assumeIsolated { WindscribeMax.scanActive }
         let all = vpn.sessions
         // Waiting for the network can last a whole flight, and the pause before a retry a whole night
         // for a gateway that is down: those hold still (see below), they do not animate.
         let resting: (VPNStatus) -> Bool = { $0.waitingForNetwork || $0.waitingToRetry }
-        let busy = all.first { ($0.phase == .connecting && !resting($0)) || $0.phase == .disconnecting }
+        // A scan has its own icon: the tunnels it ends do not animate over it.
+        let busy = scanning ? nil : all.first { ($0.phase == .connecting && !resting($0)) || $0.phase == .disconnecting }
         let offline = all.first(where: resting)
         let up = all.filter { $0.phase == .connected }.compactMap(\.connectionName)
         if busy == nil { animTimer?.invalidate(); animTimer = nil }
@@ -350,7 +408,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         var title = ""
         var tip = "FiveT — not connected"
 
-        if let busy {
+        if scanning {
+            button.image = scanningSymbol() ?? symbol("shield.fill")
+            tip = "FiveT — \(MainActor.assumeIsolated { WindscribeMax.all.first(where: \.scanning)?.backend.title } ?? "a built-in VPN") is scanning for routes that work"
+        } else if let busy {
             // One tunnel changing state animates the icon even while another is up. A running
             // animation keeps going: restarting it on every progress line pinned it to frame 0.
             if animTimer == nil {
@@ -397,27 +458,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     // MARK: Menu
 
     func menuNeedsUpdate(_ menu: NSMenu) {
+        if menu !== self.menu {   // the FiveT menu at the top of the screen: only its Smart Connect line changes
+            for item in menu.items where item.action == #selector(smartConnect) { showSmartConnectTitle(item, smartConnectTitle()) }
+            return
+        }
         rebuildMenu()
         menuTimer?.invalidate()
-        let t = Timer(timeInterval: 1, repeats: true) { [weak self] _ in self?.refreshLiveTitles() }
+        var ticks = 0
+        let t = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+            ticks += 1
+            self?.refreshLiveTitles()
+            if ticks % 4 == 0 { self?.askBuiltIn() }
+        }
         t.tolerance = 0.2
         RunLoop.main.add(t, forMode: .common)
         menuTimer = t
+        askBuiltIn()
     }
 
-    func menuWillOpen(_ menu: NSMenu) { menuIsOpen = true }
+    func menuWillOpen(_ menu: NSMenu) { if menu === self.menu { menuIsOpen = true } }
 
     func menuDidClose(_ menu: NSMenu) {
+        guard menu === self.menu else { return }   // not the FiveT menu at the top of the screen
         menuIsOpen = false
         menuTimer?.invalidate(); menuTimer = nil
         vpn.clearError()
     }
 
     /// A small template SF Symbol for a menu line, drawn in the menu's text colour.
+    /// Bitmap-backed, like the menu bar icon (see `symbol()`): handed a symbol image directly, the menu did not
+    /// draw the lightning bolt of Smart Connect on the developer's Mac, while the bitmap dots of the VPN lines show.
     private func menuSymbol(_ name: String) -> NSImage? {
         let cfg = NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
-        let img = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(cfg)
-        img?.isTemplate = true
+        guard let src = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(cfg) else { return nil }
+        let img = NSImage(size: src.size, flipped: false) { rect in
+            src.draw(in: rect)
+            return true
+        }
+        img.isTemplate = true
         return img
     }
 
@@ -458,12 +536,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         case .connecting, .disconnecting: color = .systemOrange
         default: color = .tertiaryLabelColor
         }
-        item.image = dot(color)
         item.isEnabled = st?.phase != .disconnecting
+        decorate(item, dot(color))
         return item
     }
 
-    /// A section title in the menu ("Forti", "VPN"): macOS 14's small grey heading, or on
+    /// A section title in the menu ("Forti", "My VPNs", "Built in"): macOS 14's small grey heading, or on
     /// macOS 13 a greyed-out line.
     private func sectionHeader(_ title: String) -> NSMenuItem {
         if #available(macOS 14, *) { return .sectionHeader(title: title) }
@@ -477,35 +555,82 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         return VPNStatus.durationText(Int(Date().timeIntervalSince(since)))
     }
 
+    /// The built-in services' lines in the menu, under "Built in": just the name, whatever the service is doing. A service
+    /// has no line at all unless its app and command line are on this Mac and it is not known to be signed out.
+    private func builtInItems() -> [NSMenuItem] {
+        MainActor.assumeIsolated {
+            WindscribeMax.all.compactMap { m -> NSMenuItem? in
+                guard m.backend.installState() == .ready, m.status?.isLoggedIn != false else { return nil }
+                let item = NSMenuItem(title: m.backend.menuName, action: #selector(toggleBuiltIn(_:)), keyEquivalent: "")
+                item.target = self
+                item.representedObject = m.rowID
+                showBuiltInState(item, m)
+                return item
+            }
+        }
+    }
+
+    /// The dot (green connected, orange busy, grey off) and whether a click is possible.
+    @MainActor private func showBuiltInState(_ item: NSMenuItem, _ m: WindscribeMax) {
+        item.isEnabled = !m.scanning && m.busy == nil
+        item.title = m.backend.menuName   // the plain title again: this runs every second, and `decorate` builds on the title
+        decorate(item, dot(m.connected ? .systemGreen : m.scanning || m.busy != nil || m.status?.isConnecting == true ? .systemOrange : .tertiaryLabelColor))
+    }
+
+    private var askingBuiltIn = false
+
+    /// While the menu is open: asks each service for its state, so the dots are right a moment after it opens.
+    private func askBuiltIn() {
+        guard !askingBuiltIn, menu.items.contains(where: { $0.action == #selector(toggleBuiltIn(_:)) }) else { return }
+        askingBuiltIn = true
+        Task { @MainActor in
+            defer { askingBuiltIn = false }
+            for m in WindscribeMax.all where !m.scanning && m.busy == nil && m.backend.installState() == .ready { await m.refresh() }
+        }
+    }
+
+    @objc private func toggleBuiltIn(_ sender: NSMenuItem) {
+        MainActor.assumeIsolated {
+            guard let m = WindscribeMax.service(for: sender.representedObject as? UUID) else { return }
+            if m.connected || m.status?.isConnecting == true { m.disconnect() } else { m.connect() }
+        }
+    }
+
     private func rebuildMenu() {
         menu.removeAllItems()
         let conns = store.connections
         let sessions = vpn.sessions
 
-        if conns.isEmpty {
+        let builtIn = builtInItems()
+        if conns.isEmpty && builtIn.isEmpty {
             let i = NSMenuItem(title: "No connections yet — open Settings", action: nil, keyEquivalent: "")
             i.isEnabled = false
             menu.addItem(i)
         }
         // Each connection shows its own state; clicking one connects it (a VPN that was up is
         // disconnected: one VPN at a time, next to Forti), or disconnects it. With an OpenVPN connection
-        // saved, the menu has two sections, like Settings: Forti, then VPN.
+        // saved, the menu has sections, like Settings: Forti, My VPNs, then Built in (Windscribe, ExpressVPN).
         let forti = conns.filter { !$0.isOtherVPN }
         let openvpn = conns.filter(\.isOtherVPN)   // OpenVPN and V2Ray
         let ext = sessions.first(where: { $0.connectionID == nil })   // an openfortivpn started outside FiveT
-        if !openvpn.isEmpty && (!forti.isEmpty || ext != nil) { menu.addItem(sectionHeader("Forti")) }
+        if (!openvpn.isEmpty || !builtIn.isEmpty) && (!forti.isEmpty || ext != nil) { menu.addItem(sectionHeader("Forti")) }
         forti.forEach { menu.addItem(connectionItem($0)) }
         if let ext {
             let item = NSMenuItem(title: "Stop: \(ext.connectionName ?? "openfortivpn session")", action: #selector(disconnectAll), keyEquivalent: "")
             item.target = self
-            item.image = dot(ext.phase == .connected ? .systemGreen : .systemOrange)
             item.isEnabled = ext.phase == .connected
+            decorate(item, dot(ext.phase == .connected ? .systemGreen : .systemOrange))
             menu.addItem(item)
         }
         if !openvpn.isEmpty {
             if !forti.isEmpty || ext != nil { menu.addItem(.separator()) }
-            menu.addItem(sectionHeader("VPN"))
+            menu.addItem(sectionHeader("My VPNs"))
             openvpn.forEach { menu.addItem(connectionItem($0)) }
+        }
+        if !builtIn.isEmpty {
+            if !conns.isEmpty || ext != nil { menu.addItem(.separator()) }
+            menu.addItem(sectionHeader("Built in"))
+            builtIn.forEach { menu.addItem($0) }
         }
 
         if ConnectionStore.shared.appsOnly, !ConnectionStore.shared.vpnApps.isEmpty {
@@ -516,8 +641,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
                                    action: #selector(openAppThroughVPN(_:)), keyEquivalent: "")
                 i.target = self
                 i.representedObject = path
-                i.image = NSWorkspace.shared.icon(forFile: path).resized(to: NSSize(width: 16, height: 16))
                 i.isEnabled = vpn.appProxyReady
+                decorate(i, NSWorkspace.shared.icon(forFile: path).resized(to: NSSize(width: 16, height: 16)))
                 menu.addItem(i)
             }
         }
@@ -528,7 +653,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             // The kill switch is blocking the Mac's internet: said here, with the way out.
             let i = NSMenuItem(title: "Internet Blocked by Kill Switch: Unblock Internet", action: #selector(unblockInternet), keyEquivalent: "")
             i.target = self
-            i.image = menuSymbol("lock.shield")
+            decorate(i, menuSymbol("lock.shield"))
             i.toolTip = "The VPN is down and nobody switched it off, so FiveT lets nothing leave the Mac. Connecting again, disconnecting, or this line lifts the block."
             menu.addItem(i)
         }
@@ -548,7 +673,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
                                action: #selector(reviewCertificate(_:)), keyEquivalent: "")
             i.target = self
             i.representedObject = c.id
-            i.image = menuSymbol("exclamationmark.shield")
+            decorate(i, menuSymbol("exclamationmark.shield"))
             menu.addItem(i)
         }
         if vpn.needsSetup {
@@ -558,6 +683,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             menu.addItem(i)
         }
         if vpn.killSwitchActive || vpn.lastError != nil || vpn.needsSetup || !changed.isEmpty { menu.addItem(.separator()) }
+
+        // Smart Connect (the lightning bolt) has a section of its own above Settings, once there is a VPN to choose from.
+        if !openvpn.isEmpty || !builtIn.isEmpty {
+            let smart = NSMenuItem(title: "Smart Connect", action: #selector(smartConnect), keyEquivalent: "")
+            smart.target = self
+            showSmartConnectTitle(smart, smartConnectTitle())
+            smart.toolTip = "Tests every VPN that is switched on in Settings → Smart Connect and connects the one with the best score."
+            menu.addItem(smart)
+            menu.addItem(.separator())
+        }
 
         // Settings and Quit share the last section, plain text, no icons.
         let settings = NSMenuItem(title: "Settings", action: #selector(openSettings), keyEquivalent: "")
@@ -585,7 +720,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             guard let id = item.representedObject as? UUID, let c = store.connection(id: id) else { continue }
             if item.action == #selector(toggleConnection(_:)) {
                 item.title = title(for: c)
+                let st = vpn.status(for: id)
+                decorate(item, dot(st?.phase == .connected ? .systemGreen : st?.phase == .connecting || st?.phase == .disconnecting ? .systemOrange : .tertiaryLabelColor))
             }
+        }
+        for item in menu.items where item.action == #selector(toggleBuiltIn(_:)) {
+            MainActor.assumeIsolated { if let m = WindscribeMax.service(for: item.representedObject as? UUID) { showBuiltInState(item, m) } }
+        }
+        for item in menu.items where item.action == #selector(smartConnect) { showSmartConnectTitle(item, smartConnectTitle()) }
+    }
+
+    /// Puts `picture` in front of the item's title, as part of the text. macOS 27 on the developer's Mac draws no `image` of a
+    /// menu item (only its own, like the gear of Settings): the dots that say which VPN is up, the lightning bolt
+    /// of Smart Connect and the warning shields were all invisible. A picture inside the text is drawn. Call it
+    /// after the title and `isEnabled` are set.
+    private func decorate(_ item: NSMenuItem, _ picture: NSImage?) {
+        guard let picture else { item.attributedTitle = nil; return }
+        let font = NSFont.menuFont(ofSize: 0)
+        let attachment = NSTextAttachment()
+        attachment.image = picture
+        // Centred on the capital letters of the title.
+        attachment.bounds = NSRect(x: 0, y: ((font.capHeight - picture.size.height) / 2).rounded(), width: picture.size.width, height: picture.size.height)
+        let text = NSMutableAttributedString(attachment: attachment)
+        var look: [NSAttributedString.Key: Any] = [.font: font]
+        if !item.isEnabled { look[.foregroundColor] = NSColor.disabledControlTextColor }
+        text.append(NSAttributedString(string: "  " + item.title, attributes: look))
+        item.attributedTitle = text
+    }
+
+    private func showSmartConnectTitle(_ item: NSMenuItem, _ title: String) {
+        item.title = title
+        decorate(item, menuSymbol("bolt.fill"))
+    }
+
+    /// "Smart Connect", or while a run goes on, what it is doing (a click then stops it).
+    private func smartConnectTitle() -> String {
+        MainActor.assumeIsolated { SmartConnect.shared.running ? "Stop Smart Connect — \(SmartConnect.shared.step)" : "Smart Connect" }
+    }
+
+    @objc private func smartConnect() {
+        MainActor.assumeIsolated {
+            let smart = SmartConnect.shared
+            if smart.running { smart.stop() } else { smart.start() }
         }
     }
 
@@ -857,6 +1033,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
 
         let appItem = NSMenuItem()
         let appMenu = NSMenu()
+        // Smart Connect (the lightning bolt) above Settings, as in the menu bar icon's menu; a click while it runs stops it.
+        let smart = appMenu.addItem(withTitle: "Smart Connect", action: #selector(smartConnect), keyEquivalent: "")
+        smart.target = self
+        showSmartConnectTitle(smart, "Smart Connect")
+        appMenu.delegate = self
+        appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ",").target = self
         appMenu.addItem(withTitle: "Check for Updates…", action: #selector(checkForUpdates), keyEquivalent: "").target = self
         appMenu.addItem(.separator())

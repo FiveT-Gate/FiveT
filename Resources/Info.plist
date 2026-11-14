@@ -19,7 +19,7 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.22.0</string>
+	<string>1.23.0</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -32,7 +32,7 @@
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>45</string>
+	<string>46</string>
 	<key>FiveTUpdateFeed</key>
 	<string>https://github.com/FiveT-Gate/FiveT/releases/latest/download/latest.json</string>
 	<key>LSMinimumSystemVersion</key>
@@ -41,6 +41,10 @@
 	<true/>
 	<key>NSHighResolutionCapable</key>
 	<true/>
+	<key>NSLocationUsageDescription</key>
+	<string>FiveT reads the name of your Wi-Fi so Windscribe Max and Express Max can keep one set of scan results for each network. The name stays on this Mac.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>FiveT reads the name of your Wi-Fi so Windscribe Max and Express Max can keep one set of scan results for each network. The name stays on this Mac.</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 </dict>
