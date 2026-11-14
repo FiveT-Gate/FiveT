@@ -502,7 +502,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         guard let st = vpn.status(for: c.id) else { return c.name }
         switch st.phase {
         case .connected:
-            return "\(c.name) — Connected \(durationText(st.since))" + (st.health.map { " · \($0)" } ?? "")
+            return "\(c.name) — Connected" + (st.health.map { " · \($0)" } ?? "")
         case .connecting:
             return "\(c.name) — \(st.detail ?? "Connecting…")"
         case .disconnecting:
@@ -537,11 +537,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
         item.isEnabled = false
         return item
-    }
-
-    private func durationText(_ since: Date?) -> String {
-        guard let since else { return "" }
-        return VPNStatus.durationText(Int(Date().timeIntervalSince(since)))
     }
 
     /// The built-in services' lines in the menu, under "Built in": just the name, whatever the service is doing. A service
@@ -684,7 +679,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         }
 
         // Settings and Quit share the last section, plain text, no icons.
-        let settings = NSMenuItem(title: "Settings", action: #selector(openSettings), keyEquivalent: "")
+        // Its own action, like the error line: with openSettings macOS draws its Settings gear in front of it.
+        let settings = NSMenuItem(title: "Settings", action: #selector(openSettingsFromMenu), keyEquivalent: "")
         settings.target = self
         menu.addItem(settings)
         let quit = NSMenuItem(title: "Quit", action: #selector(quit), keyEquivalent: "")
@@ -703,7 +699,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         return cut[..<end].trimmingCharacters(in: CharacterSet.punctuationCharacters.union(.whitespaces)) + "…"
     }
 
-    /// Updates the "Connected 1:23" / TOTP countdown text while the menu is open.
+    /// Updates the connecting text / TOTP countdown while the menu is open.
     private func refreshLiveTitles() {
         for item in menu.items where item.action == #selector(toggleConnection(_:)) {
             guard let id = item.representedObject as? UUID, let c = store.connection(id: id) else { continue }
@@ -949,6 +945,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     }
 
     @objc func openSettings() { showSettings(tab: .connections) }
+    @objc private func openSettingsFromMenu() { showSettings(tab: .connections) }
     /// The menu's warning line: the whole message is under the connection in Settings, on its tab.
     @objc private func showErrorDetails() {
         let failed = vpn.lastError.flatMap { e in store.connections.first { $0.lastError == e } }

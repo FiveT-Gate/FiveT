@@ -10,6 +10,35 @@ import UniformTypeIdentifiers
 /// which is what gives it the current macOS design. Same behaviour as `@State`.
 typealias ViewState<Value> = SwiftUI.State<Value>
 
+/// A disclosure row, as Apple's HIG describes one: a chevron that turns when it opens, a label that says what
+/// is behind it, and the whole row is the click target (DisclosureGroup here opened only from its tiny arrow).
+/// Shared by "Advanced" in the Forti form and "Backup" in General.
+private struct DisclosureHeader: View {
+    let title: String
+    let open: Bool
+    let help: String
+    let toggle: () -> Void
+
+    var body: some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.2)) { toggle() }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "chevron.right")
+                    .font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+                    .rotationEffect(.degrees(open ? 90 : 0))
+                    .frame(width: 12)
+                Text(title)
+                Spacer()
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityValue(open ? "expanded" : "collapsed")
+        .help(help)
+    }
+}
+
 /// `connections` is the Forti tab (FortiGate connections); OpenVPN connections have their own, the VPN tab.
 enum SettingsTab: Hashable, CaseIterable {
     case connections, openvpn, sso, assistants, general
@@ -779,7 +808,7 @@ struct ConnectionForm: View {
                         TextField("Name", text: $connection.name)
                         TextField("Remote gateway (IP or host name)", text: $connection.host)
                         TextField("Port", value: $connection.port, formatter: Self.portFormatter)
-                        TextField("Realm (optional, the part after the slash)", text: $connection.realm)
+                        TextField("Realm", text: $connection.realm)
                     }
                 }
                 if connection.isV2Ray {
@@ -887,24 +916,10 @@ struct ConnectionForm: View {
                 }
                 if connection.kind == .fortinet {
                 Section {
-                    // A disclosure row, as Apple's HIG describes one: a chevron that turns when it opens, a label that says what
-                    // is behind it, and the whole row is the click target (DisclosureGroup here opened only from its tiny arrow).
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.2)) { advancedOpen.toggle() }
-                    } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: "chevron.right")
-                                .font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
-                                .rotationEffect(.degrees(advancedOpen ? 90 : 0))
-                                .frame(width: 12)
-                            Text("Advanced")
-                            Spacer()
-                        }
-                        .contentShape(Rectangle())
+                    DisclosureHeader(title: "Advanced", open: advancedOpen,
+                                     help: advancedOpen ? "Hide the advanced settings" : "Show the advanced settings: DNS, the gateway certificate, extra options") {
+                        advancedOpen.toggle()
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityValue(advancedOpen ? "expanded" : "collapsed")
-                    .help(advancedOpen ? "Hide the advanced settings" : "Show the advanced settings: DNS, the gateway certificate, extra options")
                     if advancedOpen {
                         dnsFields
                         LabeledContent("Gateway certificate") {
@@ -1185,6 +1200,7 @@ struct GeneralTab: View {
     @ViewState private var startAtLogin = SMAppService.mainApp.status == .enabled
     @ViewState private var loginMessage: String?
     @ViewState private var backupMessage: String?
+    @ViewState private var backupOpen = false
 
     static let repositoryURL = URL(string: "https://github.com/FiveT-Gate/FiveT")!
     private static let fivetType = UTType(filenameExtension: "fivet") ?? .json
@@ -1254,9 +1270,9 @@ struct GeneralTab: View {
                     .onChange(of: store.killSwitch) { _ in VPNManager.shared.killSwitchChanged() }
                 Text("Blocks internet access if the VPN drops.")
                     .font(.subheadline).foregroundStyle(.secondary)
-                Toggle("Use the VPN for Chosen Apps Only", isOn: $store.appsOnly)
+                Toggle("VPN for Chosen Apps", isOn: $store.appsOnly)
                     .onChange(of: store.appsOnly) { _ in VPNManager.shared.appsModeChanged() }
-                Text("For V2Ray and Outline. Only the apps below use the VPN, and the rest of the Mac stays as it is. Start them from FiveT's menu (Open with VPN). While the VPN is down they have no internet at all. Works for apps built on Chrome (Claude, Chrome, Slack, VS Code…), not for Safari or most native apps.")
+                Text("V2Ray and Outline only. Just the apps below use the VPN. Start them from the menu with Open with VPN. Works for Chrome-based apps (Claude, Slack, VS Code), not Safari.")
                     .font(.subheadline).foregroundStyle(.secondary)
                 if store.appsOnly {
                     ForEach(store.vpnApps, id: \.self) { path in
@@ -1276,14 +1292,20 @@ struct GeneralTab: View {
                 UpdateRow()
                 Toggle("Install updates automatically", isOn: $store.autoUpdate)
             }
-            Section("Backup") {
-                HStack {
-                    Button("Export Settings…") { exportSettings() }
-                    Button("Import Settings…") { importSettings() }
-                    if let m = backupMessage { Text(m).font(.subheadline).foregroundStyle(.secondary) }
+            Section {
+                DisclosureHeader(title: "Backup", open: backupOpen,
+                                 help: backupOpen ? "Hide the backup" : "Show the backup: export and import all connections and settings") {
+                    backupOpen.toggle()
                 }
-                Text("A .fivet file is an encrypted backup of all connections and settings. Import it on another Mac to copy them.")
-                    .font(.subheadline).foregroundStyle(.secondary)
+                if backupOpen {
+                    HStack {
+                        Button("Export Settings…") { exportSettings() }
+                        Button("Import Settings…") { importSettings() }
+                        if let m = backupMessage { Text(m).font(.subheadline).foregroundStyle(.secondary) }
+                    }
+                    Text("A .fivet file is an encrypted backup of all connections and settings. Import it on another Mac to copy them.")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                }
             }
             Section("About") {
                 Link("FiveT on GitHub", destination: Self.repositoryURL)
