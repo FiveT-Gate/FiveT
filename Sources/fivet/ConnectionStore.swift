@@ -58,9 +58,11 @@ final class ConnectionStore: ObservableObject {
         var connections: [Connection] = []
         /// Connections in the file that could not be read. Not saved: CodingKeys leaves it out.
         var unreadable = 0
+        /// Only in a .fivet backup: the SSO tab's codes (connections.json never holds them, sso.json does).
+        var ssoCodes: [SSOEntry]?
 
         private enum CodingKeys: String, CodingKey {
-            case version, showNameInMenuBar, verboseLogging, verbosePackets, autoReconnect, watchdog, killSwitch, autoFailover, appsOnly, vpnApps, smartOff, bypassIran, mcpEnabled, autoUpdate, connections
+            case version, showNameInMenuBar, verboseLogging, verbosePackets, autoReconnect, watchdog, killSwitch, autoFailover, appsOnly, vpnApps, smartOff, bypassIran, mcpEnabled, autoUpdate, connections, ssoCodes
         }
         /// One list entry that decodes to nil instead of failing the whole file.
         private struct Lossy: Decodable {
@@ -89,6 +91,7 @@ final class ConnectionStore: ObservableObject {
             let all = try c.decodeIfPresent([Lossy].self, forKey: .connections) ?? []
             connections = all.compactMap(\.value)
             unreadable = all.count - connections.count
+            ssoCodes = try? c.decodeIfPresent([SSOEntry].self, forKey: .ssoCodes)
         }
     }
 
@@ -216,7 +219,12 @@ final class ConnectionStore: ObservableObject {
 
     /// Every connection (with its saved passwords and one-time-code secrets) and every setting, as
     /// the bytes of a .fivet file: connections.json's format, encrypted (see BackupFile).
-    func backupData() throws -> Data { try BackupFile.seal(encoded(snapshot())) }
+    func backupData() throws -> Data {
+        var f = snapshot()
+        let codes = SSOStore.shared.entries
+        if !codes.isEmpty { f.ssoCodes = codes }
+        return try BackupFile.seal(encoded(f))
+    }
 
     /// Reads a .fivet file: its settings replace this Mac's, its connections are added (one with the
     /// same id as a saved connection replaces it). Throws, changing nothing, when it is not a FiveT file.
@@ -246,7 +254,10 @@ final class ConnectionStore: ObservableObject {
         mcpEnabled = f.mcpEnabled
         autoUpdate = f.autoUpdate
         Log.shared.write("imported a .fivet file: \(added) connection(s) added, \(replaced) replaced, \(f.unreadable) unreadable")
+        let codes = SSOStore.shared.merge(f.ssoCodes ?? [])
+        if codes > 0 { Log.shared.write("imported \(codes) SSO code(s) from the .fivet file") }
         return "Imported \(added) new and \(replaced) updated connection(s) and the settings."
+            + (codes > 0 ? " \(codes) SSO code(s) added." : "")
             + (f.unreadable > 0 ? " \(f.unreadable) could not be read (made by a newer FiveT?)." : "")
     }
 

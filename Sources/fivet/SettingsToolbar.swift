@@ -11,7 +11,7 @@ final class SettingsToolbar: NSObject, NSToolbarDelegate {
     static let shared = SettingsToolbar()
 
     private static let tabs: [(tab: SettingsTab, title: String)] = [
-        (.connections, "Forti"), (.openvpn, "VPN"), (.assistants, "MCP"), (.general, "General"),
+        (.connections, "Forti"), (.openvpn, "VPN"), (.sso, "SSO"), (.assistants, "MCP"), (.general, "General"),
     ]
     private static let tabsItem = NSToolbarItem.Identifier("fivet.tabs")
 

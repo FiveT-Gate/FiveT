@@ -1169,6 +1169,13 @@ enum Diagnostics {
         if !vpn.sessions.isEmpty, let e = vpn.lastError { s += "last error: \(e)\n" }
         let mcp = MCPServer.shared
         s += "mcp: " + (mcp.isListening ? "listening on \(MCPPaths.socketPath), \(mcp.clientCount) assistant(s) connected" : "off") + "\n"
+        // SSO codes: counts and state only, never a name's secret or a code.
+        let sso = SSOStore.shared.entries
+        let withShortcut = sso.filter { $0.shortcut != nil }.count
+        let refused = SSOCoordinator.shared.problems.count
+        s += "sso: \(sso.count) code(s), \(withShortcut) with a shortcut"
+        if refused > 0 { s += " (\(refused) refused by macOS or another app)" }
+        s += CodeTyper.isAllowed ? ", typing allowed\n" : ", typing NOT allowed (Privacy & Security → Accessibility)\n"
         for c in ConnectionStore.shared.connections {
             s += "connection '\(c.name)': \(c.gatewayDescription) user=\(c.username) otp=\(c.otpMode.rawValue)"
             s += " cert=\(c.hasPinForGateway ? "pinned" : (c.knowsGateway ? "ca-verified" : "not-yet-seen"))"

@@ -90,9 +90,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             RunLoop.main.perform(inModes: [.default]) { self?.askToLogInAgain(id) }
         }
         vpn.detectExistingSession()
-        // FiveT had an SSO tab (one-time codes on keyboard shortcuts) until 1.11.1: its saved codes
-        // are deleted once, so their secrets do not stay behind on the Mac.
-        Self.removeSSOLeftovers()
+        // The SSO tab's shortcuts work from here on, in every app, for as long as FiveT runs.
+        SSOCoordinator.shared.start()
         refreshIcon()
         // Links that started FiveT (or came during launch) run once the tunnels already up have been
         // found and the helper check says whether FiveT is set up.
@@ -125,6 +124,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         // Debug helpers: `open FiveT.app --args --setup` opens Settings directly.
         let args = CommandLine.arguments
         if args.contains("--setup") { showSettings(tab: .general) }
+        else if args.contains("--sso") { showSettings(tab: .sso) }
         else if args.contains("--settings") {
             // `--settings windscribe` (or `expressvpn`) opens the VPN tab on Windscribe Max (with FIVET_WINDSCRIBE_CLI=none in a test copy: its "not installed" screen).
             if args.contains("windscribe") { SettingsRouter.shared.picked[.openvpn] = WindscribeMax.rowID; showSettings(tab: .openvpn) }
@@ -144,12 +144,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             }.store(in: &cancellables)
             Updater.shared.check()
         }
-        // `--dump-settings [connections|openvpn|smart|windscribe|general|mcp]` renders the Settings window (title bar
+        // `--dump-settings [connections|openvpn|smart|windscribe|sso|general|mcp]` renders the Settings window (title bar
         // included) on that tab (General by default) to a PNG and quits; used to check the window
         // layout without Screen Recording permission.
         if let i = args.firstIndex(of: "--dump-settings") {
             let name = args.dropFirst(i + 1).first
-            let named: [String: SettingsTab] = ["mcp": .assistants, "connections": .connections, "forti": .connections, "smart": .openvpn, "openvpn": .openvpn, "windscribe": .openvpn, "expressvpn": .openvpn]
+            let named: [String: SettingsTab] = ["mcp": .assistants, "connections": .connections, "forti": .connections, "smart": .openvpn, "openvpn": .openvpn, "windscribe": .openvpn, "expressvpn": .openvpn, "sso": .sso]
             if name == "windscribe" { SettingsRouter.shared.picked[.openvpn] = WindscribeMax.rowID }   // the VPN tab with Windscribe Max picked
             if name == "expressvpn" { SettingsRouter.shared.picked[.openvpn] = WindscribeMax.expressRowID }
             if name == "smart" { SettingsRouter.shared.picked[.openvpn] = SmartConnect.rowID }
@@ -222,8 +222,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         // the main thread did not answer: that is how long the window (and the tab animation) froze.
         if args.contains("--time-tabs") {
             showSettings(tab: .connections)
-            let order: [SettingsTab] = [.general, .assistants, .connections, .general, .assistants, .connections,
-                                        .general, .assistants, .connections]
+            let order: [SettingsTab] = [.general, .sso, .assistants, .connections, .general, .sso, .assistants, .connections,
+                                        .general, .sso, .assistants, .connections]
             let lock = NSLock()
             var worst = 0.0
             Thread.detachNewThread {
@@ -303,23 +303,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         vpn.shutdownCleanup()     // never leave /etc/resolver files behind
         Updater.shared.installAtQuit()
         store.flush()             // a settings change from the last half second
+        SSOStore.shared.flush()
         MainActor.assumeIsolated { WindscribeMax.all.forEach { $0.stopForQuit() } }   // never leave a built-in VPN on a scan's test route
         MainActor.assumeIsolated { SmartConnect.shared.stopForQuit() }
-    }
-
-    /// sso.json, and any sso.unreadable-*.json set aside from it, in FiveT's data folder.
-    private static func removeSSOLeftovers() {
-        let fm = FileManager.default
-        let dir = ConnectionStore.shared.directory
-        let names = (try? fm.contentsOfDirectory(atPath: dir.path)) ?? []
-        for name in names where name == "sso.json" || (name.hasPrefix("sso.unreadable-") && name.hasSuffix(".json")) {
-            do {
-                try fm.removeItem(at: dir.appendingPathComponent(name))
-                Log.shared.write("removed \(name): FiveT no longer has SSO codes")
-            } catch {
-                Log.shared.write("could not remove \(name): \(error.localizedDescription)", level: .error)
-            }
-        }
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {

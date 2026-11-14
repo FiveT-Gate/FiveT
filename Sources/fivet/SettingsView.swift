@@ -12,7 +12,7 @@ typealias ViewState<Value> = SwiftUI.State<Value>
 
 /// `connections` is the Forti tab (FortiGate connections); OpenVPN connections have their own, the VPN tab.
 enum SettingsTab: Hashable, CaseIterable {
-    case connections, openvpn, assistants, general
+    case connections, openvpn, sso, assistants, general
 
     /// The tab that lists `c`: OpenVPN and V2Ray are on the VPN tab.
     static func of(_ c: Connection) -> SettingsTab { c.isOtherVPN ? .openvpn : .connections }
@@ -90,6 +90,7 @@ struct SettingsPage: View {
             switch tab {
             case .connections: ConnectionsTab(kind: .fortinet)
             case .openvpn: ConnectionsTab(kind: .openvpn)
+            case .sso: SSOTab()
             case .general: GeneralTab()
             case .assistants: AssistantsTab()
             }

@@ -127,6 +127,14 @@ if let first = cliArgs.first {
     case "--check-expressvpn":
         // Express Max's parsers against sample output, and (read only) what ExpressVPN on this Mac says.
         exit(ExpressCheck.run())
+    case "--check-sso":
+        // SSO codes against a throwaway data folder (FIVET_DATA_DIR, test builds only): a .fivet backup
+        // round trip, the merge rules, and optionally the accounts a QR picture holds (a picture path).
+        #if DISTRIBUTION
+        print("--check-sso is for test builds"); exit(2)
+        #else
+        exit(SSOCheck.run(pictures: Array(cliArgs.dropFirst())))
+        #endif
     case "--print-install":
         // The root shell command Install Helper… runs (no secrets in it), for checking its syntax.
         print(Setup.installCommands(sources: [URL(fileURLWithPath: Setup.bundledOpenfortivpnPath)], openvpn: Setup.bundledOpenVPNPath,
