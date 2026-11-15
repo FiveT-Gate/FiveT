@@ -18,9 +18,10 @@ XRAY_VERSION=26.11.9
 XRAY_SHA256=233f0c66681cd0726f81a6b2b6ed6a5710869e312047b522e46ed53035bebd26
 XRAY_URL=https://github.com/XTLS/Xray-core/releases/download/v$XRAY_VERSION/Xray-macos-arm64-v8a.zip
 # Iranian and private address ranges (categories "ir" and "private"), 38 KB, from Chocolate4U's
-# Iran-v2ray-rules (GPL-3.0), which publishes a new list every day; this one is from 2026-11-10.
-GEO_RELEASE=202611101256
-GEO_SHA256=1f443cc645af8d77d371546bb0dfb21dbd5260fda40a11549b44a2b08c28ec5d
+# Iran-v2ray-rules (GPL-3.0), which publishes a new list every day; GEO_RELEASE is its date and time.
+# release.sh takes the newest one itself (python3 -I Tools/cores.py bump --auto), checked against GitHub's digest.
+GEO_RELEASE=202611141143
+GEO_SHA256=764b34ac3d6228787f293eefa764440c8c4bbe6534eab258bfc1b0e4c8a3efb7
 GEO_URL=https://github.com/Chocolate4U/Iran-v2ray-rules/releases/download/$GEO_RELEASE/geoip-lite.dat
 
 DEPS=$PWD/build/deps

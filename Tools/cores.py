@@ -1,16 +1,21 @@
 #!/usr/bin/env python3
-"""Watches the programs FiveT bundles: Xray, OpenVPN, openfortivpn, OpenSSL, LZO and LZ4.
+"""Watches the programs FiveT bundles: Xray, OpenVPN, openfortivpn, OpenSSL, LZO and LZ4, and the Iran rules
+(geoip-lite.dat from Chocolate4U/Iran-v2ray-rules, read by Xray).
 
   Tools/cores.py check [--json] [--gate]   compare every pinned version with the newest upstream release
   Tools/cores.py bump [core ...]           download the newest release inside each core's line, check it
                                            against the project's own signature or digests, rewrite the pins
+  Tools/cores.py bump --auto               only the "auto" entries (the Iran rules): release.sh runs it first
+  Tools/cores.py rules-check <file>        the sanity check a new Iran rules list must pass (see check_iran_rules)
 
-check exits 0 when everything is current, 10 when an update is available, 3 when a lookup failed.
+check exits 0 when everything is current, 10 when an update is available, 3 when a lookup failed. An "auto"
+entry (a data file published every day) is only reported: release.sh takes its newest copy itself.
 OpenVPN and OpenSSL follow their release line (2.6.x, 3.5.x LTS): a newer line is only reported.
 No AI and no packages: python3, and gpg for OpenVPN's signature. Run by release.sh and cores-watch.sh.
 """
 import datetime
 import hashlib
+import ipaddress
 from concurrent.futures import ThreadPoolExecutor
 import json
 import os
@@ -42,6 +47,11 @@ CORES = {
                     url="https://github.com/openssl/openssl/releases/download/openssl-{v}/openssl-{v}.tar.gz"),
     "lzo": dict(name="LZO", file="build-openvpn.sh", ver="LZO_VERSION", sha="LZO_SHA256", brew="lzo", line=0,
                 url="https://www.oberhumer.com/opensource/lzo/download/lzo-{v}.tar.gz"),
+    # A new list every day: not a program to test by hand, so release.sh takes the newest (bump --auto); the
+    # build then has Xray read it (fetch-xray.sh) before anything ships.
+    "iranrules": dict(name="Iran rules", file="fetch-xray.sh", ver="GEO_RELEASE", sha="GEO_SHA256",
+                      repo="Chocolate4U/Iran-v2ray-rules", tag=r"(\d{12})", line=0, asset="geoip-lite.dat", auto=True,
+                      url="https://github.com/Chocolate4U/Iran-v2ray-rules/releases/download/{v}/geoip-lite.dat"),
     "lz4": dict(name="LZ4", file="build-openvpn.sh", ver="LZ4_VERSION", sha="LZ4_SHA256", brew="lz4", line=0,
                 url="https://github.com/lz4/lz4/archive/refs/tags/v{v}.tar.gz"),
 }
@@ -127,7 +137,7 @@ def check_one(item):
         row["pinned"] = pinned(c, "ver")
         best, top, _ = newest(key, c)
         row["latest"] = vs(best)
-        row["status"] = "UPDATE" if vt(row["pinned"]) < best else "ok"
+        row["status"] = ("auto" if c.get("auto") else "UPDATE") if vt(row["pinned"]) < best else "ok"
         if c["line"] and top[:c["line"]] > vt(row["pinned"])[:c["line"]] and not c.get("lts"):
             row["newer_line"] = vs(top)
     except Exception as e:
@@ -144,7 +154,7 @@ def check():
 def show(rows):
     print("%-13s %-10s %-10s %s" % ("core", "pinned", "newest", ""))
     for r in rows:
-        note = {"ok": "current", "UPDATE": "UPDATE AVAILABLE", "error": "lookup failed: " + r.get("error", "")}[r["status"]]
+        note = {"ok": "current", "UPDATE": "UPDATE AVAILABLE", "auto": "newer list (the next release takes it)", "error": "lookup failed: " + r.get("error", "")}[r["status"]]
         if r.get("newer_line"):
             note += "  (a newer line exists: %s, needs a manual test)" % r["newer_line"]
         print("%-13s %-10s %-10s %s" % (r["name"], r.get("pinned", "?"), r.get("latest", "?"), note))
@@ -190,6 +200,11 @@ def verify(key, c, v, path, rel):
         must("openssl .sha256 file", m.group(1) if m else None)
         if "openssl .sha256 file" not in agree:
             raise RuntimeError("no .sha256 file in the release")
+    elif c.get("auto"):
+        if "GitHub digest" not in agree:
+            raise RuntimeError("the release has no GitHub sha256 digest for it")
+        check_iran_rules(open(path, "rb").read())
+        agree.append("Iran rules sanity check")
     elif key == "openvpn":
         asc = asset(rel, "openvpn-%s.tar.gz.asc" % v)
         if not asc:
@@ -203,6 +218,90 @@ def verify(key, c, v, path, rel):
         else:
             agree.append("WARNING: only the download itself (Homebrew still has %s)" % f["versions"]["stable"])
     return got, agree
+
+
+# The digest only proves the download arrived whole. A list that is wrong (or forged in the project) could call most
+# of the internet Iranian, and with Bypass Iranian Websites on that traffic would skip the VPN. So a new list must
+# look like the ones before it: these numbers are the 2026 lists (Iran ~11.0 M IPv4 addresses, widest block /12,
+# IPv6 /26) with wide margins; a real change that big would need a look anyway.
+IR_IN = ["2.176.0.1", "5.160.0.1", "79.175.128.1", "185.143.233.1"]            # TCI, MCI, Shatel, ArvanCloud
+FOREIGN = ["8.8.8.8", "1.1.1.1", "9.9.9.9", "142.250.1.1", "104.16.0.1", "13.107.21.200", "151.101.1.1",
+           "17.253.144.10", "2001:4860:4860::8888", "2606:4700:4700::1111"]
+PRIVATE_IN = ["10.0.0.1", "172.16.0.1", "192.168.1.1", "127.0.0.1", "fd00::1"]
+
+
+def _varint(b, i):
+    n = shift = 0
+    while True:
+        c = b[i]
+        i += 1
+        n |= (c & 0x7F) << shift
+        shift += 7
+        if c < 0x80:
+            return n, i
+
+
+def _fields(b):
+    """The (field number, value) pairs of a protobuf message: varints and length-delimited only, as geoip files use."""
+    i = 0
+    while i < len(b):
+        key, i = _varint(b, i)
+        if key & 7 == 0:
+            v, i = _varint(b, i)
+        elif key & 7 == 2:
+            n, i = _varint(b, i)
+            v = b[i:i + n]
+            i += n
+        else:
+            raise ValueError("unexpected protobuf wire type %d" % (key & 7))
+        yield key >> 3, v
+
+
+def geoip_lists(data):
+    """A geoip .dat (GeoIPList: GeoIP{country_code=1, cidr=2 CIDR{ip=1, prefix=2}}) as {code: [networks]}."""
+    out = {}
+    for f, entry in _fields(data):
+        if f != 1:
+            continue
+        code, nets = "", []
+        for g, v in _fields(entry):
+            if g == 1:
+                code = v.decode("ascii", "replace").lower()
+            elif g == 2:
+                cidr = dict(_fields(v))
+                ip, plen = cidr.get(1, b""), cidr.get(2, 0)
+                if len(ip) not in (4, 16):
+                    raise ValueError("an address of %d bytes in %s" % (len(ip), code))
+                nets.append(ipaddress.ip_network((ipaddress.ip_address(ip), plen), strict=False))
+        out[code] = nets
+    return out
+
+
+def check_iran_rules(data):
+    """Raises unless the list looks like an Iranian address list (see IR_IN, FOREIGN)."""
+    try:
+        lists = geoip_lists(data)
+    except (ValueError, IndexError) as e:
+        raise RuntimeError("Iran rules: not a geoip file FiveT can read (%s)" % e)
+    ir, private = lists.get("ir"), lists.get("private")
+    if not ir or not private:
+        raise RuntimeError("Iran rules: the \"ir\" or \"private\" list is missing")
+    def has(nets, ip):
+        a = ipaddress.ip_address(ip)
+        return any(a in n for n in nets if n.version == a.version)
+    problems = []
+    v4 = [n for n in ir if n.version == 4]
+    total = sum(n.num_addresses for n in v4) / 1e6
+    if not 6 <= total <= 20:
+        problems.append("Iran has %.1f M IPv4 addresses in it (6 to 20 M expected)" % total)
+    if min(n.prefixlen for n in v4) < 10 or min((n.prefixlen for n in ir if n.version == 6), default=128) < 20:
+        problems.append("it holds a block wider than /10 (IPv4) or /20 (IPv6)")
+    problems += ["%s is not in it" % ip for ip in IR_IN if not has(ir, ip)]
+    problems += ["it calls %s Iranian" % ip for ip in FOREIGN if has(ir, ip)]
+    problems += ["%s is not in its private list" % ip for ip in PRIVATE_IN if not has(private, ip)]
+    problems += ["its private list holds %s" % ip for ip in FOREIGN + IR_IN if has(private, ip)]
+    if problems:
+        raise RuntimeError("Iran rules refused: " + "; ".join(problems))
 
 
 def gpg_check(path, sig):
@@ -269,6 +368,10 @@ def write_mirror(create=False):
 
 def main():
     args = sys.argv[1:]
+    if args[:1] == ["rules-check"] and len(args) == 2:   # Tools/cores.py rules-check <geoip-lite.dat>
+        check_iran_rules(open(args[1], "rb").read())
+        print("Iran rules look right:", args[1])
+        return 0
     if not args or args[0] not in ("check", "bump", "sync-pins"):
         print(__doc__)
         return 2
@@ -277,7 +380,10 @@ def main():
         print("pins written to", MIRROR)
         return 0
     if args[0] == "bump":
-        status = bump([a for a in args[1:] if not a.startswith("-")])
+        wanted = [a for a in args[1:] if not a.startswith("-")]
+        if "--auto" in args:
+            wanted = [k for k, c in CORES.items() if c.get("auto")]
+        status = bump(wanted)
         write_mirror()
         return status
     write_mirror()
