@@ -42,9 +42,9 @@ final class SubscriptionTests: ObservableObject {
             let out = await VPNImport.updateSubscription(id: id)
             change(id) {
                 $0.updating = false
-                $0.pings = [:]
-                $0.quality = [:]
                 $0.failed = out.lines.first?.hasPrefix("Could not") == true
+                // A failed update changed nothing: the results still belong to the servers listed.
+                if !$0.failed { $0.pings = [:]; $0.quality = [:] }
                 $0.message = out.message
             }
         }
@@ -59,7 +59,17 @@ final class SubscriptionTests: ObservableObject {
         let servers = (ConnectionStore.shared.connection(id: id)?.v2rayServers ?? []).filter { !Self.isUDP($0) }
         change(id) { $0.pinging = true; $0.pings = [:] }
         await withTaskGroup(of: (String, Int).self) { group in
-            for s in servers { group.addTask { (s.key, await V2RayConfig.tcpPing(host: s.host, port: s.port) ?? -1) } }
+            // 24 at a time: a subscription of hundreds opened that many connections at once, which
+            // slowed every answer (the times shown were the crowd's, not the servers').
+            var running = 0
+            for s in servers {
+                if running >= 24, let (key, ms) = await group.next() {
+                    change(id) { $0.pings[key] = ms }
+                    running -= 1
+                }
+                group.addTask { (s.key, await V2RayConfig.tcpPing(host: s.host, port: s.port) ?? -1) }
+                running += 1
+            }
             for await (key, ms) in group { change(id) { $0.pings[key] = ms } }
         }
         change(id) { $0.pinging = false }
@@ -80,7 +90,8 @@ final class SubscriptionTests: ObservableObject {
             let list = base.v2rayServers.filter { pings[$0.key] != -1 }
             change(id) { $0.qualityTotal = list.count }
             for s in list {
-                if Task.isCancelled { break }
+                // A connection removed meanwhile has nobody to show the rest to.
+                if Task.isCancelled || ConnectionStore.shared.connection(id: id) == nil { break }
                 var c = base
                 c.name = "\(base.name) · \(s.name)"
                 V2RayConfig.use(s, in: &c)

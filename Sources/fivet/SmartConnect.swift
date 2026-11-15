@@ -241,7 +241,7 @@ final class SmartConnect: ObservableObject {
         p.standardError = FileHandle.nullDevice
         guard (try? p.run()) != nil else { return Measure(failure: "Xray could not start") }
         probing = p
-        defer { p.terminate(); probing = nil }
+        defer { p.terminate(); if probing === p { probing = nil } }   // a stopped check ending late must not forget the next one's Xray
         // An Xray that ended at once must not take FiveT down with it (SIGPIPE, or an exception from the write).
         let w = input.fileHandleForWriting
         _ = fcntl(w.fileDescriptor, F_SETNOSIGPIPE, 1)

@@ -789,18 +789,18 @@ struct ConnectionForm: View {
                 Button { tests.update(connection.id) } label: {
                     Label(test.updating ? "Updating…" : "Update", systemImage: "arrow.clockwise")
                 }
-                .disabled(test.updating || test.qualityRunning)
+                .disabled(test.updating || test.pinging || test.qualityRunning)   // a test's answers are for the list as it is
                 .help("Fetch the subscription again: its servers and the account's data and end date.")
                 Button { tests.ping(connection.id) } label: {
                     Label(test.pinging && !test.qualityRunning ? "Testing…" : "Test Ping", systemImage: "gauge.with.dots.needle.33percent")
                 }
-                .disabled(test.pinging || test.qualityRunning)
+                .disabled(test.pinging || test.qualityRunning || test.updating)
                 .help("How long each server takes to answer a TCP connection, from this Mac.")
                 Button { tests.quality(connection.id) } label: {
                     Label(!test.qualityRunning ? "Quality" : test.pinging ? "Stop (ping…)" : "Stop (\(test.qualityDone)/\(test.qualityTotal))",
                           systemImage: test.qualityRunning ? "stop.circle" : "checkmark.seal")
                 }
-                .disabled(test.pinging && !test.qualityRunning)
+                .disabled((test.pinging || test.updating) && !test.qualityRunning)
                 .help("Ping every server, then load a web page and download for 4 s through each one that answered, and score it (0-100). Takes a few seconds a server; the Mac's connection stays as it is.")
             }
         }

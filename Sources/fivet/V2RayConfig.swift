@@ -489,9 +489,12 @@ enum V2RayConfig {
             if kv.count == 2, let n = Double(kv[1]) { v[kv[0].lowercased()] = n }
         }
         guard !v.isEmpty else { return nil }
+        // The header is the server's word: "inf", "nan" or 1e30 would crash the conversion to a whole
+        // number, and an end date ages away would crash the day count in Settings at every open.
+        let whole = { (d: Double) -> Int64 in d.isFinite ? Int64(min(max(d, 0), 9e18)) : 0 }
         let end = v["expire"] ?? 0
-        return SubscriptionUsage(used: Int64((v["upload"] ?? 0) + (v["download"] ?? 0)), total: Int64(v["total"] ?? 0),
-                                 expire: end > 0 ? Date(timeIntervalSince1970: end) : nil)
+        return SubscriptionUsage(used: whole((v["upload"] ?? 0) + (v["download"] ?? 0)), total: whole(v["total"] ?? 0),
+                                 expire: end > 0 && end < 1e11 ? Date(timeIntervalSince1970: end) : nil)
     }
 
     // MARK: Connections
@@ -556,6 +559,17 @@ enum V2RayConfig {
 
     /// "VLESS · Reality · xhttp", for Settings.
     static func summary(_ outboundJSON: String) -> String {
+        // Remembered: a subscription's list asks this for every row at every redraw, and a ping test
+        // redraws once per answer (100 servers = 10,000 JSON parses on the main thread).
+        if let known = summaries.object(forKey: outboundJSON as NSString) { return known as String }
+        let text = makeSummary(outboundJSON)
+        summaries.setObject(text as NSString, forKey: outboundJSON as NSString)
+        return text
+    }
+
+    private static let summaries = NSCache<NSString, NSString>()
+
+    private static func makeSummary(_ outboundJSON: String) -> String {
         guard let o = object(outboundJSON) else { return "" }
         let proto = (o["protocol"] as? String ?? "").lowercased()
         let names = ["vless": "VLESS", "vmess": "VMess", "trojan": "Trojan", "shadowsocks": "Shadowsocks", "hysteria": "Hysteria2"]

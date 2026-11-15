@@ -54,6 +54,8 @@ if let first = cliArgs.first {
         // or a link; "-" reads stdin. Prints the outbound, for testing the
         // importer; it holds the server's ID or password, so only for test configs.
         for arg in cliArgs.dropFirst() {
+            // "userinfo:upload=1; total=5": how a subscription-userinfo header is read.
+            if arg.hasPrefix("userinfo:") { print(V2RayConfig.usage(String(arg.dropFirst(9))).map { "\($0)" } ?? "nil"); continue }
             var configs: [V2RayConfig.Imported] = [], problems: [String] = []
             do {
                 if arg == "-" { (configs, problems, _) = V2RayConfig.importText(String(decoding: FileHandle.standardInput.readDataToEndOfFile(), as: UTF8.self)) }

@@ -111,10 +111,13 @@ enum VPNImport {
             let old = Set(c.v2rayServers.map(\.key)), new = Set(servers.map(\.key))
             var kept = true
             store.mutate(id: id) { conn in
+                let name = conn.currentServer?.name   // read before the list is replaced
                 conn.v2rayServers = servers
                 conn.v2raySubscriptionUsage = sub.info
-                // The same server (by its settings, else by its name) stays chosen; a renamed one is taken as is.
-                if let same = servers.first(where: { $0.outbound == conn.v2rayOutbound }) ?? servers.first(where: { $0.key == conn.v2rayLink }) {
+                // The same server (by its settings, else by its name: panels change ports and keys, which
+                // is why one updates) stays chosen; a renamed one is taken as is.
+                if let same = servers.first(where: { $0.outbound == conn.v2rayOutbound }) ?? servers.first(where: { $0.key == conn.v2rayLink })
+                    ?? servers.first(where: { $0.name == name }) {
                     V2RayConfig.use(same, in: &conn)
                 } else {
                     kept = false
