@@ -124,45 +124,9 @@ Filename: "{app}\FiveT.exe"; Parameters: "--remove-login-task"; RunOnceId: "Remo
 Type: filesandordirs; Name: "{app}"
 
 [Code]
-{ Inno only adds files, so an upgrade over a folder from build.ps1 -Install (or from a release before
-  1.2.2) would keep that copy's whole payload forever: the 89 language folders and the Windows AI
-  runtime this build no longer ships, leaving ~295 MB on disk instead of ~162 MB. Clear the old files
-  before the new ones are copied. Two things are kept: the uninstaller, which setup is still using,
-  and any openconnect\ someone put there by hand - when it was packaged instead, [Files] restores it.
-  Nothing here touches %LOCALAPPDATA%\FiveT, so connections and the log are never at risk. }
-procedure CleanProgramFolder;
-var
-  FindRec: TFindRec;
-  Base, Name: String;
-begin
-  Base := ExpandConstant('{app}');
-  if not DirExists(Base) then
-    Exit;
-  if FindFirst(Base + '\*', FindRec) then
-  try
-    repeat
-      Name := FindRec.Name;
-      if (Name = '.') or (Name = '..') then
-        Continue;
-      if CompareText(Copy(Name, 1, 5), 'unins') = 0 then
-        Continue;
-      if CompareText(Name, 'openconnect') = 0 then
-        Continue;
-      if (FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0 then
-        DelTree(Base + '\' + Name, True, True, True)
-      else
-        DeleteFile(Base + '\' + Name);
-    until not FindNext(FindRec);
-  finally
-    FindClose(FindRec);
-  end;
-end;
-
-procedure CurStepChanged(CurStep: TSetupStep);
-begin
-  if CurStep = ssInstall then
-    CleanProgramFolder;
-end;
+{ Setup used to empty the program folder before copying (to drop the leftovers of releases before 1.2.2).
+  That is gone: if setup stopped half way, for instance on a file the running app or an antivirus still held,
+  it left FiveT with no files at all. Leftover files from old releases now stay; they are harmless. }
 
 { The Intel/AMD build installs on an ARM PC too, but Windows has to translate every instruction of it:
   measured on a Snapdragon laptop it used about five times the memory and nine times the start-up CPU of

@@ -24,9 +24,11 @@ public sealed record PromptSpec
     /// <summary>The secondary answer (Cancel) takes the focus, so Enter does the safe thing.</summary>
     public bool DefaultSecondary { get; init; }
     public string AutomationId { get; init; } = "Prompt";
+    /// <summary>A masked field under the message; what was typed comes back in <see cref="PromptResult.Text"/>.</summary>
+    public bool Password { get; init; }
 }
 
-public sealed record PromptResult(bool Accepted, bool Checked);
+public sealed record PromptResult(bool Accepted, bool Checked, string? Text = null);
 
 /// <summary>
 /// A small modal-looking window for the questions FiveT has to ask when no Settings window is open —
@@ -42,6 +44,7 @@ public sealed class PromptWindow : Window
 
     private readonly TaskCompletionSource<PromptResult> _done = new();
     private readonly CheckBox? _check;
+    private readonly PasswordBox? _password;
     private readonly StackPanel _panel;
 
     public static Task<PromptResult> Ask(string key, PromptSpec spec)
@@ -91,6 +94,16 @@ public sealed class PromptWindow : Window
                 BorderBrush = (Brush)res["CardStrokeColorDefaultBrush"], BorderThickness = new Thickness(1),
             });
         }
+        if (spec.Password)
+        {
+            _password = new PasswordBox();
+            AutomationProperties.SetAutomationId(_password, spec.AutomationId + "Password");
+            _password.KeyDown += (_, e) =>
+            {
+                if (e.Key == Windows.System.VirtualKey.Enter) { Finish(true); e.Handled = true; }
+            };
+            _panel.Children.Add(_password);
+        }
         if (spec.CheckboxText is { } cb)
         {
             _check = new CheckBox { Content = cb };
@@ -119,7 +132,7 @@ public sealed class PromptWindow : Window
 
         // A warning gets no default: Enter must not trust a certificate by accident. Otherwise the
         // primary button takes the focus, so Enter answers the common case.
-        root.Loaded += (_, _) => (spec.Warning || spec.DefaultSecondary ? secondary : primary).Focus(FocusState.Programmatic);
+        root.Loaded += (_, _) => (_password as Control ?? (spec.Warning || spec.DefaultSecondary ? secondary : primary)).Focus(FocusState.Programmatic);
         // The prompt pops up on its own, possibly right under a click or a key press meant for
         // something else. Like a browser's permission prompt, the risky answer only becomes
         // clickable once the window has been on screen for a moment.
@@ -133,7 +146,8 @@ public sealed class PromptWindow : Window
 
     private void Finish(bool accepted)
     {
-        _done.TrySetResult(new PromptResult(accepted, _check?.IsChecked == true));
+        _done.TrySetResult(new PromptResult(accepted, _check?.IsChecked == true, accepted ? _password?.Password : null));
+        if (_password != null) _password.Password = "";
         Close();
     }
 

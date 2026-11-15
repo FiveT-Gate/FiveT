@@ -121,6 +121,12 @@ public sealed partial class ConnectionEditor : UserControl
             }
             else if (message != null) ShowEditorMessage(message, InfoBarSeverity.Error);
         }
+        catch (Exception ex)
+        {
+            // async void: an exception that escapes here ends the app.
+            Log.Shared.Write($"Show…: {ex}", LogLevel.Error);
+            ShowEditorMessage("FiveT could not show the password. Details are in the log.", InfoBarSeverity.Error);
+        }
         finally { _verifying = false; }
     }
 

@@ -9,8 +9,8 @@ The Windows version (C# / .NET 8, WinUI 3 tray app) of the macOS menu bar app **
 root of this repository (`../Sources/fivet`, Swift). The Mac app is the reference for behaviour: when unsure
 how something should behave, look at the Swift file with the same role. The Windows app follows the Mac app's
 rules, wording, settings file and MCP tools wherever Windows allows it; the README's "What is different from the
-Mac app" table lists the accepted differences. The Windows version has the Mac's features up to 1.22 (Backup, Switch to Another VPN, chosen apps only, MCP
-settings), but not the Mac's Smart Connect, Windscribe Max, Express Max or SSO tab (1.23, 1.24); "1.5.0", "2.0.0" and "1.20 to 1.21.2" below record what earlier audits against the Mac source taught.
+Mac app" table lists the accepted differences. The Windows version is at Mac 1.17.1 parity (1.18 and 1.19 are not
+ported yet); "1.5.0" and "2.0.0" below record what earlier audits against the Mac source taught.
 
 | Role | Windows file | Mac counterpart |
 |------|--------------|-----------------|
@@ -26,7 +26,7 @@ settings), but not the Mac's Smart Connect, Windscribe Max, Express Max or SSO t
 | Settings pages that listen to singletons must let go on close | `src/FiveT/Pages/IDetachable.cs` | — |
 | FortiClient import (registry) | `src/FiveT/FortiClientImport.cs` | 1.4.0 import |
 | Log redaction (passwords, codes, secrets, cookies) | `Redactor` in `src/FiveT/Log.cs` | 1.8.0 |
-| Settings window (Forti / VPN / MCP / General) | `src/FiveT/SettingsWindow.xaml`, `Pages/*.xaml`, `Ui.cs` | `SettingsView.swift` |
+| Settings window (Connections / General / MCP) | `src/FiveT/SettingsWindow.xaml`, `Pages/*.xaml`, `Ui.cs` | `SettingsView.swift` |
 | Saved connections, DPAPI password storage | `src/FiveT/ConnectionStore.cs`, `Connection.cs` | `ConnectionStore.swift` |
 | Setup checks, login task (Task Scheduler), install openconnect path | `src/FiveT/Setup.cs` | `Setup.swift` |
 | Split DNS via NRPT rules | `src/FiveT/SplitDns.cs` | `VPNManager.swift` (writes `/etc/resolver/<domain>`) |
@@ -336,14 +336,14 @@ Do not undo:
   trust, changed certificate, Keep Blocked, a link acting as automation). Not seen: a real renewal, Lab.
 - **FortiClient import**: the registry layout (`...\Sslvpn\Tunnels\<name>`, `Server`, `username`) and
   the backup XML parser (ported from the Mac) are untested on a PC with FortiClient.
-- **Windows Hello fallback** (CredUI + LogonUser) for PCs without Hello: compiled, not exercised.
+- **Show… without Windows Hello** (FiveT's own `PromptWindow` password field + LogonUser): checked in a dev copy (prompt, wrong password, cancel), NOT with a correct password or on an Azure AD / Microsoft account. Do not go back to `CredUIPromptForWindowsCredentials`: on the reporter's PC (2.3.0) it ended FiveT at once with `NullReferenceException: Invalid pointer` (no repro on a Windows 11 ARM64 VM, cause unconfirmed). `Show_Click` and `SecretGate.VerifyAsync` must never throw (async void).
 - Tray icon rendering on light vs dark taskbars and on HiDPI (PerMonitorV2 is enabled).
 
 ## Git
 
 This folder is the `windows/` directory of https://github.com/FiveT-Gate/FiveT. The Mac app owns everything outside it.
 `src/FiveT/LocalSeeds.cs` (a developer's own credentials) is git-ignored: `build.ps1` creates an empty one, and connections
-are added in Settings → Forti.
+are added in Settings → Connections.
 
 ## 2.0.0: Mac 1.17.1 parity, things not to undo
 
@@ -369,3 +369,4 @@ arming, full-tunnel DNS), `OpenVpnProfile.cs`, `V2RayConfig.cs`, `XrayConfigChec
 - Never run a full-tunnel VPN test on a PC without its owner: it reroutes everything, including any VPN already running.
 - Never run against a real server yet: every OpenVPN, V2Ray and Outline connection, the VPN switch, the real
   kill-switch block. See README "Not run".
+- The installer no longer empties `{app}` before copying (the old `CleanProgramFolder`): a setup that stopped half way left FiveT with no files, i.e. "uninstalled". Do not bring a wipe-first step back; delete stale files only after the copy succeeded.

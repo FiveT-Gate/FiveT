@@ -1,6 +1,6 @@
 # FiveT for Windows
 
-One-click FortiGate SSL-VPN, OpenVPN, V2Ray and Outline from the Windows notification area. Native C# / .NET 8 (WinUI 3), no FortiClient needed.
+One-click FortiGate SSL-VPN from the Windows notification area. Native C# / .NET 8 (WinUI 3), no FortiClient needed.
 This is the Windows version of the macOS menu bar app that lives in the root of this repository; the behaviour, settings file,
 MCP tools and command line are the same wherever Windows allows it.
 
@@ -16,7 +16,7 @@ connection name, and you are connected. Click it again to disconnect. The icon s
 
 ## Install
 
-Download **FiveT-Setup-\<version\>.exe** (or **FiveT-Setup-\<version\>-arm64.exe** on an ARM PC) from the newest *FiveT for Windows* release on the [Releases](https://github.com/FiveT-Gate/FiveT/releases?q=windows) page and double-click it. Accept the UAC prompt and that is all:
+Download **FiveT-Setup-\<version\>.exe** and double-click it. Accept the UAC prompt and that is all:
 FiveT lands in `C:\Program Files\FiveT`, gets a Start Menu entry and an Add/Remove Programs entry,
 and (unless you clear the checkbox) registers the logon task so every later start is elevated with
 no prompt. The same file installs over an existing copy and keeps your connections.
@@ -46,7 +46,7 @@ in one click.
 - Wintun sometimes fails to remove its adapter when the tunnel closes and leaves a dead one behind, which
   would stop the next connection. FiveT clears those by itself — if it happens mid-connect, it retries.
 - For **Office**, the app generates the 6-digit TOTP code from your secret and appends it to the static
-  password automatically. The Forti tab in Settings shows the current code with a Copy button.
+  password automatically. The Connections tab in Settings shows the current code with a Copy button.
   If a login with a code is rejected, FiveT tries the other code mode once and keeps the one that works.
   It never sends a code with 4 seconds or less left, or one already used; it waits for the next one (as the Mac does).
 - Creating a tunnel needs administrator rights, so FiveT runs elevated: the first start shows one UAC prompt.
@@ -109,7 +109,7 @@ writes `connections.json` and the generated XAML type table, so it is deliberate
 ## First-time setup
 
 With the setup file there is nothing to do: install, and Settings opens on General with
-**Add Your VPN…**. Then Settings → Forti → **+**, or the import button under the list to copy
+**Add Your VPN…**. Then Settings → Connections → **+**, or the import button under the list to copy
 FortiClient's connections (you add only the passwords).
 
 For a copy built without OpenConnect, or run from `dist\` on a PC without it:
@@ -124,18 +124,18 @@ For a copy built without OpenConnect, or run from `dist\` on a PC without it:
 3. Click the shield → **Settings** → **General**. It should say *FiveT is ready*; otherwise click **Set Up FiveT**.
 4. Turn on **Start FiveT at login**. From now on FiveT starts at logon as administrator without a prompt.
 
-## Test runbook (any other VPN must be OFF)
+## Test runbook (your personal VPN must be OFF)
 
-A FortiGate gateway may not answer while another VPN that takes all of the PC's traffic is on, so switch it off for this check.
+FortiGate gateways do not answer while the personal VPN is on, so Claude will be offline during this part.
 
-1. Turn the other VPN off.
+1. Turn your personal VPN off.
 2. Click the shield → click **Office**. The icon animates for a few seconds, then shows a check mark.
    The menu line reads `Office — Connected 0:05` and keeps counting.
 3. Open something that only works on the Office network to confirm.
 4. Click the shield → click **Office** again. The icon returns to the outline shield.
 5. Repeat steps 2–4 for **Lab**.
-6. Whatever happened, open shield → **Settings** → **General** → **Copy Diagnostics**. Turn the other VPN back on and
-   paste the clipboard text into your bug report. It contains the setup checks and the last log lines, never the passwords.
+6. Whatever happened, open shield → **Settings** → **General** → **Copy Diagnostics**. Turn your personal VPN back on and
+   paste the clipboard into the chat. It contains the setup checks and the last log lines, never the passwords.
 
 Clicking the other connection while one is connected brings up a **second** tunnel next to it,
 so check both are listed and that the first keeps working; use **Disconnect All** to stop them together.
@@ -163,7 +163,7 @@ Two things in this port could only be verified against a real gateway, so check 
 Clicking a second connection **adds** a tunnel; it does not replace the first. Each one gets its own
 openconnect process, its own Wintun adapter (`FiveT`, then `FiveT-2`, `FiveT-3` — the lowest free
 name is reused when a tunnel ends), its own NRPT rules and its own auto-reconnect schedule, so one
-dropping or failing never disturbs the others. Every row in the menu and in Settings → Forti
+dropping or failing never disturbs the others. Every row in the menu and in Settings → Connections
 shows only its own state and time (`Office — Connected 0:42`). The menu has **Connect All** when
 there is more than one connection and one is down, and **Disconnect All** once more than one is up —
 the same as the Mac app since 1.3.
@@ -223,7 +223,7 @@ certificate, with the Mac app's rules (1.8):
   after an automatic renewal always asks.
 - **Anything else** becomes a review saved on the connection: **Review Certificate for Office…**
   (first time) or **Review New Certificate for Office…** (changed) in the menu, and **Review…** in
-  Settings → Forti → Advanced. A click on the connection asks at once. An AI assistant, the
+  Settings → Connections → Advanced. A click on the connection asks at once. An AI assistant, the
   command line or a fivet:// link fails with "Choose Review New Certificate for Office… in FiveT's
   menu". An automatic reconnect keeps retrying on its schedule without ever logging in, because a
   hotel Wi-Fi sign-in page that intercepts the connection goes away by itself; if the old
@@ -257,7 +257,7 @@ button, AutoHotkey, or a chat:
 | `fivet://connect/Office` (or `up`) | connects Office; already up: nothing happens |
 | `fivet://toggle/Lab` | connects Lab, or disconnects it if it is up |
 | `fivet://disconnect` (or `down`) | disconnects every tunnel; `fivet://disconnect/Office` just that one |
-| `fivet://settings` (or `open`) | opens Settings on Forti (Windows also takes `/general` and `/mcp`) |
+| `fivet://settings` (or `open`) | opens Settings on Connections (Windows also takes `/general` and `/mcp`) |
 
 `fivet:connect/Office` and `fivet://connect?name=Office` work too. Use the name exactly as it appears
 in the menu; capitals don't matter; a space is `%20`. The first time a link connects, FiveT asks
@@ -271,7 +271,7 @@ pipe only your account can open (`\\.\pipe\fivet-link-<SID>`), starting FiveT fi
 
 ## One-time codes from a QR code
 
-Settings → Forti → the connection → **One-time code from a QR code** (the row is always there,
+Settings → Connections → the connection → **One-time code from a QR code** (the row is always there,
 even before a one-time-code mode is chosen). Take a screenshot of the setup QR code with **Win+Shift+S**,
 then click **Paste Screenshot**; or **Choose Image…** for a saved picture; or drop a picture on the row.
 All the QR codes in the picture are read. Both `otpauth://totp/…` and Google Authenticator's export code
@@ -317,9 +317,8 @@ the name `YYYY-MM-DD_FiveT.fivet` (today's date, then the backup name); you can 
   Mac's `connections.json`, because the DPAPI copy in `connections.json` only opens for the same Windows account on the same
   PC. Keep the file private anyway. FiveT limits it to your Windows account where the drive allows (a USB stick with FAT
   cannot) and says so when it cannot.
-- **Mac files.** FiveT for Mac 1.19 to 1.21 wrote plain `.fivet` files; since 1.22 it writes encrypted ones, with a key of its own.
-  Import here accepts a plain file (from an older Mac, or from FiveT 2.2.0), but not an encrypted Mac file, and a Mac cannot open a
-  file made here: backups made by the current versions of the two apps cannot be exchanged.
+- **Mac files.** FiveT for Mac writes and reads plain `.fivet` files. Import here accepts such a plain file (and one from
+  FiveT 2.2.0), but a file made here is encrypted, so a Mac cannot open it.
 - **Import adds and replaces.** A connection with the id of a saved one replaces it where it stands; the others are added. The
   settings in the file replace this PC's; a setting the file does not hold stays. What was saved before is kept once as
   `connections.json.before-import` (it is encrypted like `connections.json`). A file that is not a FiveT file is refused and
@@ -430,7 +429,7 @@ Tip: add the install folder to your PATH, then `fivetctl status` works from anyw
 When another VPN owns the default route, Windows may never ask the tunnel's DNS servers for internal names
 such as `admin.corp.example`, while `nslookup admin.corp.example 192.0.2.53` works.
 
-Fix: Settings → Forti → the connection → **DNS domains**, e.g. `corp.example, lab.example`. While that
+Fix: Settings → Connections → the connection → **DNS domains**, e.g. `corp.example, lab.example`. While that
 connection is up, FiveT adds NRPT rules (Name Resolution Policy Table) that send look-ups for those domains
 to the pushed DNS servers, and removes them on disconnect (also on quit, and stale ones at the next launch).
 `get_status` reports `split_dns.state` (`active`, `helper_needed`, `failed`); `check_reachability` tells you
@@ -445,7 +444,7 @@ Diagnostics and `get_log` show INFO and above by default.
 
 ## Editing connections
 
-Shield → **Settings** → **Forti** tab. Select a connection to edit its name, gateway, port, realm,
+Shield → **Settings** → Connections tab. Select a connection to edit its name, gateway, port, realm,
 username, password and one-time-code mode. Press **+** to add one, **−** to remove (it asks first), or
 the import button to copy FortiClient's. Changes save immediately.
 The password and TOTP secret stay masked; **Show…** (there only when something is saved) asks
@@ -496,7 +495,7 @@ Copy Diagnostics and the log switches.
   passwords or secrets. The log and the diagnostics hold no secrets and no way to add a forged line: line breaks
   from outside text become ` ⏎ `.
 - A developer can seed connections with their own credentials in `src/FiveT/LocalSeeds.cs`, which is git-ignored.
-  A fresh clone has no such file, builds with no connections; add them in Settings → Forti.
+  A fresh clone has no such file, builds with no connections; add them in Settings → Connections.
   **`build.ps1 -Installer` (and `release.ps1`) build with `-p:Distribution=true`, which leaves `LocalSeeds.cs` out
   of `FiveT.dll`** and refuses to package a `dist\FiveT.dll` that still carries it; a plain build or `-Install` keeps
   the seeds for this PC only.
@@ -527,8 +526,7 @@ Then remove the `fivet` entry from the assistants you registered it with, and un
 
 ## 2.0.0: the Mac's 1.9 to 1.17.1
 
-Built from the Mac source in the root of this repository (1.17.1 at the time). Later Mac versions came in Windows 2.2 and 2.3
-(Backup, Switch to Another VPN, Chosen Apps, MCP settings). The Mac's Smart Connect, Windscribe Max, Express Max and SSO tab are not on Windows.
+Built from the Mac source in the root of this repository (1.17.1 at the time; the Mac's 1.18 and 1.19 are not ported yet).
 
 **Connection kinds.** Settings has four tabs, as on the Mac: Forti, VPN, MCP, General.
 
