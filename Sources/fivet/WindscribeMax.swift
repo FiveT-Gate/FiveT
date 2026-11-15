@@ -615,6 +615,8 @@ final class WindscribeMax: ObservableObject {
 
     func startScan() {
         guard !scanning, busy == nil else { return }
+        // A scan disconnects everything and walks through routes: under a Smart Connect run each would undo the other.
+        guard !SmartConnect.shared.running else { return tell("Smart Connect is running. Stop it first.", error: true) }
         let steps = plan
         guard !steps.isEmpty else { return }
         let cfg = settings

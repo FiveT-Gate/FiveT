@@ -369,16 +369,20 @@ final class VPNManager: ObservableObject {
     /// their names. The built-in Windscribe and Express rows do this before they connect: one VPN at a time. A scan
     /// passes `withForti`: it tests the network itself, so Forti connections go too.
     @discardableResult
-    func stopOtherVPNs(withForti: Bool = false) -> [String] {
+    func stopOtherVPNs(withForti: Bool = false, keepBlock: Bool = false) -> [String] {
         let vpns = live.filter { !$0.external && (withForti || $0.connection.isOtherVPN) }
-        for s in vpns { disconnect(id: s.connection.id) }
+        for s in vpns { disconnect(id: s.connection.id, keepBlock: keepBlock) }
         return vpns.map(\.name)
     }
 
-    /// Stops one tunnel, as its user asked: the kill switch lets go too.
-    func disconnect(id: UUID) {
+    /// Stops one tunnel, as its user asked: the kill switch lets go too. `keepBlock`: nobody asked (Smart Connect
+    /// moves on from a VPN that failed), so a block stays, and a tunnel that is up is blocked before it stops,
+    /// as in a switch from one VPN to another.
+    func disconnect(id: UUID, keepBlock: Bool = false) {
         guard let s = session(for: id) else { return }
-        if s.connection.isOtherVPN { releaseKillSwitch() }   // the block is the VPN's; a Forti stop leaves it
+        if keepBlock {
+            if ConnectionStore.shared.killSwitch, s.blockOnExit != nil { blockInternet(for: s) }
+        } else if s.connection.isOtherVPN { releaseKillSwitch() }   // the block is the VPN's; a Forti stop leaves it
         halt(s)
     }
 
