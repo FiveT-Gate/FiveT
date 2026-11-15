@@ -224,7 +224,9 @@ final class SmartConnect: ObservableObject {
         return Measure(score: WindscribeResult.score(ping: nil, loss: nil, jitter: nil, web: web, speed: speed), speed: speed, web: web)
     }
 
-    private func probe(_ c: Connection) async -> Measure {
+    /// A V2Ray or Outline server measured through a side Xray (a local proxy only). Also the Quality test of a
+    /// subscription's servers in Settings.
+    func probe(_ c: Connection) async -> Measure {
         let port = V2RayConfig.freePort()
         guard let config = try? V2RayConfig.forProbe(c, port: port, interface: NetworkIdentity.physicalInterface()) else {
             return Measure(failure: "Its server settings are missing")

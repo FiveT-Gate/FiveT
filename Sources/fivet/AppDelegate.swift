@@ -517,7 +517,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         let item = NSMenuItem(title: title(for: c), action: #selector(toggleConnection(_:)), keyEquivalent: "")
         item.target = self
         item.representedObject = c.id
-        item.toolTip = c.username.isEmpty ? c.gatewayDescription : "\(c.gatewayDescription)  ·  \(c.username)"
+        item.toolTip = c.currentServer.map { "\($0.name)  ·  \(c.gatewayDescription)" }
+            ?? (c.username.isEmpty ? c.gatewayDescription : "\(c.gatewayDescription)  ·  \(c.username)")
         let st = vpn.status(for: c.id)
         let color: NSColor
         switch st?.phase {

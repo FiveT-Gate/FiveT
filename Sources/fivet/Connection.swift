@@ -24,6 +24,30 @@ enum VPNKind: String, Codable {
     case v2ray
 }
 
+/// A subscription's account as its server reports it (the subscription-userinfo header).
+struct SubscriptionUsage: Codable, Equatable {
+    /// Bytes sent and received so far.
+    var used: Int64
+    /// The traffic allowed, in bytes; 0 means unlimited.
+    var total: Int64
+    /// When the account ends; nil means it never does.
+    var expire: Date?
+    var unlimitedData: Bool { total <= 0 }
+    var left: Int64 { max(0, total - used) }
+}
+
+/// One server of a subscription, as saved with its connection (Connection.v2rayServers).
+struct V2RayServer: Codable, Equatable {
+    var name: String
+    var link: String = ""
+    /// The server as an Xray outbound (JSON), as Connection.v2rayOutbound holds it.
+    var outbound: String
+    var host: String
+    var port: Int
+    /// Tells servers apart in the list and its ping results (two may share an outbound).
+    var key: String { link.isEmpty ? outbound : link }
+}
+
 struct Connection: Identifiable, Equatable {
     var id: UUID = UUID()
     var name: String = "New connection"
@@ -38,6 +62,11 @@ struct Connection: Identifiable, Equatable {
     var v2rayLink: String = ""
     /// The subscription URL it came from, if any: Refresh replaces what it lists.
     var v2raySubscription: String = ""
+    /// A subscription with several servers is one connection: every server it lists, the one in use
+    /// being the one in `v2rayOutbound` (and `v2rayLink`, `host`, `port`). Empty for a single server.
+    var v2rayServers: [V2RayServer] = []
+    /// What the subscription's server says about the account (traffic used, end date), for Settings.
+    var v2raySubscriptionUsage: SubscriptionUsage? = nil
     /// Iranian sites (.ir and Iranian addresses) skip the V2Ray server and go direct.
     var v2rayIranDirect: Bool = true   // no longer used: Settings → General → Bypass Iranian Websites replaced it (read once, to carry the choice over)
     var host: String = ""
@@ -87,6 +116,10 @@ struct Connection: Identifiable, Equatable {
     var otpModeAccepted: Bool { usesTOTP && acceptedOTP == otpAcceptedKey }
     var isOpenVPN: Bool { kind == .openvpn }
     var isV2Ray: Bool { kind == .v2ray }
+    /// One row for a whole subscription: its servers are chosen in Settings.
+    var isSubscription: Bool { isV2Ray && !v2rayServers.isEmpty }
+    /// The subscription server in use, when it is still listed.
+    var currentServer: V2RayServer? { v2rayServers.first { $0.outbound == v2rayOutbound } }
     /// Listed on the VPN tab (OpenVPN and V2Ray), not the Forti tab.
     var isOtherVPN: Bool { kind != .fortinet }
 
@@ -259,7 +292,7 @@ extension Connection: Codable {
     enum CodingKeys: String, CodingKey {
         case id, name, host, port, realm, username, password, totpSecret, otpMode, trustedCert, extraConfig
         case dnsDomains, lastConnectedAt, lastError, kind, ovpnProfile, acceptedOTP
-        case v2rayOutbound, v2rayLink, v2raySubscription, v2rayIranDirect
+        case v2rayOutbound, v2rayLink, v2raySubscription, v2rayIranDirect, v2rayServers, v2raySubscriptionUsage
         case trustedCertHost, trustedCertNames, pendingCert, pendingCertHost, pendingCertFirst, pendingCertInfo
     }
 
@@ -274,6 +307,8 @@ extension Connection: Codable {
         v2rayLink = try c.decodeIfPresent(String.self, forKey: .v2rayLink) ?? ""
         v2raySubscription = try c.decodeIfPresent(String.self, forKey: .v2raySubscription) ?? ""
         v2rayIranDirect = try c.decodeIfPresent(Bool.self, forKey: .v2rayIranDirect) ?? true
+        v2rayServers = try c.decodeIfPresent([V2RayServer].self, forKey: .v2rayServers) ?? []
+        v2raySubscriptionUsage = try c.decodeIfPresent(SubscriptionUsage.self, forKey: .v2raySubscriptionUsage)
         host = try c.decodeIfPresent(String.self, forKey: .host) ?? ""
         port = try c.decodeIfPresent(Int.self, forKey: .port) ?? 10443
         realm = try c.decodeIfPresent(String.self, forKey: .realm) ?? ""

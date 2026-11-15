@@ -1,4 +1,5 @@
 import Foundation
+import Network
 
 /// V2Ray connections, run by Xray. Share links (vless:// vmess:// trojan:// ss:// hysteria2://),
 /// Xray JSON files and subscriptions each become a connection. A
@@ -437,7 +438,7 @@ enum V2RayConfig {
     }
 
     /// The configs a subscription URL lists now, and the title its server gives it.
-    static func fetchSubscription(_ url: URL) async throws -> (title: String?, configs: [Imported], problems: [String]) {
+    static func fetchSubscription(_ url: URL) async throws -> (title: String?, configs: [Imported], problems: [String], info: SubscriptionUsage?) {
         var req = URLRequest(url: url, timeoutInterval: 20)
         // Panels (Marzban, 3x-ui…) answer in the format of the client they recognise; this one is
         // the plain list of links.
@@ -445,17 +446,30 @@ enum V2RayConfig {
         // Ephemeral: URLSession.shared would keep cookies and a cache on disk for a one-off request.
         let session = URLSession(configuration: .ephemeral)
         defer { session.finishTasksAndInvalidate() }
-        let (data, response) = try await session.data(for: req)
+        // Panels behind Cloudflare answer 502 now and then for a second or two: tried 3 times, as apps like V2Box do.
+        var attempt = 0
+        var (data, response) = try await session.data(for: req)
+        while let http = response as? HTTPURLResponse, http.statusCode >= 500, attempt < 2 {
+            attempt += 1
+            try await Task.sleep(nanoseconds: UInt64(attempt) * 1_500_000_000)
+            (data, response) = try await session.data(for: req)
+        }
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
-            throw Failure("The subscription server answered \(http.statusCode).")
+            throw Failure(http.statusCode >= 500
+                ? "The subscription server has a problem on its side (it answered \(http.statusCode), 3 times). Try again in a minute."
+                : "The subscription server answered \(http.statusCode).")
         }
         var title: String?
         if let raw = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "profile-title") {
             title = raw.hasPrefix("base64:") ? decodeBase64(String(raw.dropFirst(7))) : raw
         }
+        let info = ((response as? HTTPURLResponse)?.value(forHTTPHeaderField: "subscription-userinfo")).flatMap(usage)
         guard let text = String(data: data, encoding: .utf8) else { throw Failure("The subscription is not text.") }
         let fallback = title ?? url.host ?? "Subscription"
         var r = importText(text, name: fallback)
+        // Panels (Marzban, 3x-ui) put the account's state in as fake servers at 127.0.0.1 ("12 GB / 20 GB"):
+        // nothing to connect to.
+        r.configs.removeAll { ["127.0.0.1", "0.0.0.0", "localhost", "::1"].contains($0.host.lowercased()) }
         for i in r.configs.indices { r.configs[i].subscription = url.absoluteString }
         // An Outline dynamic key carries its name in the address, not in what the server answers
         // (whose one server importText names after the fallback).
@@ -463,7 +477,21 @@ enum V2RayConfig {
             for i in r.configs.indices where r.configs[i].name.trimmed.isEmpty || r.configs[i].name == fallback { r.configs[i].name = name }
         }
         if r.configs.isEmpty && r.problems.isEmpty { throw Failure("The subscription lists no configs FiveT can use.") }
-        return (title, r.configs, r.problems)
+        return (title, r.configs, r.problems, info)
+    }
+
+    /// The subscription-userinfo header ("upload=0; download=134; total=214; expire=1825514793"); nil
+    /// when it holds none of these. total=0 is unlimited traffic, expire=0 an account that never ends.
+    static func usage(_ header: String) -> SubscriptionUsage? {
+        var v: [String: Double] = [:]
+        for part in header.split(separator: ";") {
+            let kv = part.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
+            if kv.count == 2, let n = Double(kv[1]) { v[kv[0].lowercased()] = n }
+        }
+        guard !v.isEmpty else { return nil }
+        let end = v["expire"] ?? 0
+        return SubscriptionUsage(used: Int64((v["upload"] ?? 0) + (v["download"] ?? 0)), total: Int64(v["total"] ?? 0),
+                                 expire: end > 0 ? Date(timeIntervalSince1970: end) : nil)
     }
 
     // MARK: Connections
@@ -481,6 +509,20 @@ enum V2RayConfig {
         c.name = name
         apply(imp, to: &c)
         return c
+    }
+
+    /// An import as one server of a subscription connection.
+    static func server(from imp: Imported) -> V2RayServer {
+        V2RayServer(name: imp.name.trimmed.isEmpty ? imp.host : imp.name.trimmed, link: imp.link,
+                    outbound: json(imp.outbound), host: imp.host, port: imp.port)
+    }
+
+    /// Makes `s` the subscription server `c` connects to.
+    static func use(_ s: V2RayServer, in c: inout Connection) {
+        c.v2rayOutbound = s.outbound
+        c.v2rayLink = s.link
+        c.host = s.host
+        c.port = s.port
     }
 
     static func apply(_ imp: Imported, to c: inout Connection) {
@@ -506,9 +548,9 @@ enum V2RayConfig {
     }
 
     /// What the list and the detail title call a connection: Outline for a Shadowsocks server that came
-    /// as an Outline key (`outline=1`) or an ssconf:// address, Shadowsocks for any other, V2Ray for the rest.
+    /// as an Outline key (`outline=1`) or an ssconf:// address, Shadowsocks for any other, Xray for the rest and for a subscription.
     static func kindLabel(_ c: Connection) -> String {
-        guard isShadowsocks(c.v2rayOutbound) else { return "V2Ray" }
+        guard isShadowsocks(c.v2rayOutbound), !c.isSubscription else { return "Xray" }   // what runs it (Xray-core)
         return c.v2rayLink.contains("outline=1") || !c.v2raySubscription.isEmpty ? "Outline" : "Shadowsocks"
     }
 
@@ -522,6 +564,35 @@ enum V2RayConfig {
         if let sec = st["security"] as? String, sec != "none" { parts.append(sec == "reality" ? "Reality" : sec.uppercased()) }
         if let net = st["network"] as? String, net != "tcp", net != "hysteria" { parts.append(net) }
         return parts.joined(separator: " · ")
+    }
+
+    /// How long a TCP connection to the server takes to open, in milliseconds (the name lookup
+    /// included, as v2rayN's TCPing); nil when it fails or takes longer than `timeout` seconds.
+    /// Hysteria2 runs over UDP, which this cannot test.
+    static func tcpPing(host: String, port: Int, timeout: Double = 3) async -> Int? {
+        guard let p = NWEndpoint.Port(rawValue: UInt16(clamping: port)), port > 0, !host.isEmpty else { return nil }
+        let conn = NWConnection(host: NWEndpoint.Host(host), port: p, using: .tcp)
+        let queue = DispatchQueue(label: "fivet.ping")
+        let start = DispatchTime.now().uptimeNanoseconds
+        return await withCheckedContinuation { (cont: CheckedContinuation<Int?, Never>) in
+            var done = false   // touched only on `queue`
+            let finish: (Int?) -> Void = { ms in
+                guard !done else { return }
+                done = true
+                conn.stateUpdateHandler = nil
+                conn.cancel()
+                cont.resume(returning: ms)
+            }
+            conn.stateUpdateHandler = { state in
+                switch state {
+                case .ready: finish(Int((DispatchTime.now().uptimeNanoseconds - start) / 1_000_000))
+                case .failed, .waiting, .cancelled: finish(nil)   // .waiting: refused or no route; it would only retry
+                default: break
+                }
+            }
+            conn.start(queue: queue)
+            queue.asyncAfter(deadline: .now() + timeout) { finish(nil) }
+        }
     }
 
     static func json(_ o: Any) -> String {

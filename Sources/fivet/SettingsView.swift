@@ -765,6 +765,122 @@ struct ConnectionForm: View {
         }
     }
 
+    // MARK: Subscription
+
+    @ObservedObject private var tests = SubscriptionTests.shared
+    /// This subscription's Update, Test Ping and Quality, which outlive the form (SubscriptionTests).
+    private var test: SubscriptionTests.State { tests.state(connection.id) }
+
+    @ViewBuilder private var subscriptionSection: some View {
+        Section("Subscription") {
+            TextField("Name", text: $connection.name)
+            LabeledContent("Address") { Text(URL(string: connection.v2raySubscription)?.host ?? "?").textSelection(.enabled) }
+            if let u = connection.v2raySubscriptionUsage { SubscriptionUsageTiles(usage: u) }
+        }
+        Section {
+            if let m = test.message {
+                Text(m).font(.subheadline).foregroundStyle(test.failed ? Color.red : Color.secondary)
+            }
+            ForEach(Array(shownServers.enumerated()), id: \.offset) { _, server in serverRow(server) }
+        } header: {
+            HStack {
+                Text("Servers (\(connection.v2rayServers.count))")
+                Spacer()
+                Button { tests.update(connection.id) } label: {
+                    Label(test.updating ? "Updating…" : "Update", systemImage: "arrow.clockwise")
+                }
+                .disabled(test.updating || test.qualityRunning)
+                .help("Fetch the subscription again: its servers and the account's data and end date.")
+                Button { tests.ping(connection.id) } label: {
+                    Label(test.pinging && !test.qualityRunning ? "Testing…" : "Test Ping", systemImage: "gauge.with.dots.needle.33percent")
+                }
+                .disabled(test.pinging || test.qualityRunning)
+                .help("How long each server takes to answer a TCP connection, from this Mac.")
+                Button { tests.quality(connection.id) } label: {
+                    Label(!test.qualityRunning ? "Quality" : test.pinging ? "Stop (ping…)" : "Stop (\(test.qualityDone)/\(test.qualityTotal))",
+                          systemImage: test.qualityRunning ? "stop.circle" : "checkmark.seal")
+                }
+                .disabled(test.pinging && !test.qualityRunning)
+                .help("Ping every server, then load a web page and download for 4 s through each one that answered, and score it (0-100). Takes a few seconds a server; the Mac's connection stays as it is.")
+            }
+        }
+    }
+
+    /// The servers as listed, or after a finished ping test fastest first, then the ones that did not
+    /// answer or could not be tested (each group in the subscription's order).
+    private var shownServers: [V2RayServer] {
+        let all = connection.v2rayServers
+        let t = test, pings = t.pings, quality = t.quality
+        guard !t.pinging, !t.qualityRunning, !pings.isEmpty || !quality.isEmpty else { return all }
+        // Best quality score first (untested and failed last), then fastest ping, then the subscription's order.
+        let score = { (s: V2RayServer) -> Int in -(quality[s.key]?.score ?? -1) }
+        let ping = { (s: V2RayServer) -> Int in pings[s.key].flatMap { $0 >= 0 ? $0 : nil } ?? .max }
+        return all.enumerated().sorted {
+            (score($0.element), ping($0.element), $0.offset) < (score($1.element), ping($1.element), $1.offset)
+        }.map(\.element)
+    }
+
+    private func serverRow(_ s: V2RayServer) -> some View {
+        let chosen = s.outbound == connection.v2rayOutbound
+        return Button { choose(s) } label: {
+            HStack {
+                Image(systemName: chosen ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(chosen ? Color.accentColor : Color.secondary)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(s.name).lineLimit(1)
+                    Text("\(s.host):" + String(s.port) + " · " + V2RayConfig.summary(s.outbound))
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+                Spacer()
+                qualityLabel(s)
+                pingLabel(s)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(chosen ? "In use" : "Use this server" + (isActive ? " (reconnects now)" : ""))
+    }
+
+    @ViewBuilder private func pingLabel(_ s: V2RayServer) -> some View {
+        if SubscriptionTests.isUDP(s) {
+            Text("UDP").font(.caption).foregroundStyle(.secondary).help("Hysteria2 runs over UDP, which the ping test cannot reach.")
+        } else if let ms = test.pings[s.key] {
+            Text(ms < 0 ? "No answer" : "\(ms) ms").font(.caption.monospacedDigit())
+                .foregroundStyle(ms < 0 ? Color.red : ms < 300 ? Color.green : ms < 800 ? Color.orange : Color.red)
+        } else if test.pinging {
+            ProgressView().controlSize(.small)
+        }
+    }
+
+    @ViewBuilder private func qualityLabel(_ s: V2RayServer) -> some View {
+        if let m = test.quality[s.key] {
+            if let score = m.score {
+                HStack(spacing: 4) {
+                    if let speed = m.speed { Text(String(format: "%.1f Mbit/s", speed)).font(.caption.monospacedDigit()).foregroundStyle(.secondary) }
+                    Text("\(score)").font(.caption.weight(.bold).monospacedDigit()).foregroundStyle(.white)
+                        .padding(.horizontal, 6).padding(.vertical, 1)
+                        .background(score >= 70 ? Color.green : score >= 40 ? Color.orange : Color.red, in: Capsule())
+                }
+                .help("Quality \(score) of 100: web page in \(Int(m.web ?? 0)) ms, download \(String(format: "%.1f", m.speed ?? 0)) Mbit/s")
+            } else {
+                Text("No traffic").font(.caption).foregroundStyle(.red).help(m.failure ?? "")
+            }
+        } else if test.qualityRunning, test.qualityNow == s.key {
+            ProgressView().controlSize(.small)
+        }
+    }
+
+    /// Makes `s` the server this subscription connects to; while it is up, it reconnects to it at once.
+    private func choose(_ s: V2RayServer) {
+        guard s.outbound != connection.v2rayOutbound else { return }
+        V2RayConfig.use(s, in: &connection)
+        Log.shared.write("[\(connection.name)] server chosen: \(s.name)")
+        guard isActive else { return }
+        let c = connection
+        vpn.disconnect(id: c.id)
+        vpn.connect(c, byUser: true)   // waits for the stop, then starts on the new server
+    }
+
     @ViewBuilder private var openVPNSection: some View {
         Section("OpenVPN") {
             TextField("Name", text: $connection.name)
@@ -798,7 +914,9 @@ struct ConnectionForm: View {
         return VStack(spacing: 0) {
             header
             Form {
-                if connection.isV2Ray {
+                if connection.isSubscription {
+                    subscriptionSection
+                } else if connection.isV2Ray {
                     v2raySection
                 } else if connection.isOpenVPN {
                     openVPNSection
@@ -1442,5 +1560,76 @@ struct UpdateRow: View {
         case .failed(let m): return m
         default: return nil
         }
+    }
+}
+
+/// A subscription's account in two cards: the data left (with a bar) and the days left. Either may be
+/// unlimited, which the panel says with total=0 or expire=0.
+struct SubscriptionUsageTiles: View {
+    let usage: SubscriptionUsage
+
+    private static func bytes(_ n: Int64) -> String {
+        ByteCountFormatter.string(fromByteCount: n, countStyle: .binary)   // panels count 1024-based ("20.0 GB")
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            tile {
+                if usage.unlimitedData {
+                    big("Unlimited", symbol: "infinity", color: .green)
+                    Text("\(Self.bytes(usage.used)) used").font(.caption).foregroundStyle(.secondary)
+                } else {
+                    let fraction = min(1, Double(usage.used) / Double(usage.total))
+                    let color: Color = fraction >= 0.9 ? .red : fraction >= 0.7 ? .orange : .green
+                    big(usage.left > 0 ? "\(Self.bytes(usage.left)) left" : "Used up", color: usage.left > 0 ? .primary : .red)
+                    ProgressView(value: fraction).tint(color)
+                    Text("\(Self.bytes(usage.used)) of \(Self.bytes(usage.total)) used").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            tile {
+                if let end = usage.expire {
+                    let days = Int((end.timeIntervalSinceNow / 86400).rounded(.up))
+                    let color: Color = days <= 3 ? .red : days <= 7 ? .orange : .green
+                    big(days > 0 ? "\(days) \(days == 1 ? "day" : "days") left" : "Expired", color: days <= 3 ? .red : days <= 7 ? .orange : .primary)
+                    ProgressView(value: Self.timeLeft(daysLeft: days)).tint(color)   // green = time still left
+                    Text((days > 0 ? "Ends " : "Ended ") + end.formatted(date: .abbreviated, time: .omitted))
+                        .font(.caption).foregroundStyle(.secondary)
+                } else {
+                    big("Unlimited", symbol: "infinity", color: .green)
+                    Text("No end date").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        }
+        .fixedSize(horizontal: false, vertical: true)   // both cards as tall as the taller one
+        .padding(.vertical, 2)
+    }
+
+    /// How much of the plan is still left. The panel sends only the end date, so the plan is taken as the
+    /// shortest usual one (30, 60, 90, 180 or 365 days, else whole years) that still holds the days left.
+    /// shortcut: a 45-day plan shows as 60, upgrade if a panel ever sends its start date.
+    static func timeLeft(daysLeft: Int) -> Double {
+        guard daysLeft > 0 else { return 0 }
+        let plan = [30, 60, 90, 180, 365].first { $0 >= daysLeft } ?? Int((Double(daysLeft) / 365).rounded(.up)) * 365
+        return Double(daysLeft) / Double(plan)
+    }
+
+    private func big(_ text: String, symbol: String? = nil, color: Color) -> some View {
+        HStack(spacing: 4) {
+            if let symbol { Image(systemName: symbol) }
+            Text(text)
+        }
+        .font(.title3.weight(.semibold).monospacedDigit())
+        .foregroundStyle(color)
+        .lineLimit(1)
+        .minimumScaleFactor(0.8)
+    }
+
+    private func tile<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            content()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .padding(10)
+        .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }

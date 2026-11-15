@@ -61,16 +61,73 @@ enum VPNImport {
         return out
     }
 
-    /// Every config a subscription lists, each remembering the subscription so Refresh can update it.
+    /// A subscription: one connection named after it that holds every server it lists (one with a
+    /// single server, an Outline dynamic key say, stays a plain connection). A subscription that is
+    /// here already is updated instead.
     static func addSubscription(_ url: URL) async -> Outcome {
+        let store = ConnectionStore.shared
+        if let same = store.connections.first(where: { $0.isSubscription && $0.v2raySubscription == url.absoluteString }) {
+            var out = await updateSubscription(id: same.id)
+            out.lines.insert("\(same.name) is already here, so it was updated.", at: 0)
+            return out
+        }
         do {
             let sub = try await V2RayConfig.fetchSubscription(url)
+            if sub.configs.count > 1 {
+                var first = sub.configs[0]   // the server in use until another is chosen; the row is named after the subscription
+                first.name = sub.title?.trimmed.nonEmpty ?? url.host ?? "Subscription"
+                var c = V2RayConfig.connection(from: first, taken: store.connections.map(\.name))
+                c.v2rayServers = sub.configs.map(V2RayConfig.server)
+                c.v2raySubscriptionUsage = sub.info
+                c = store.add(c)
+                Log.shared.write("[\(c.name)] subscription \(url.host ?? "") imported: \(sub.configs.count) servers")
+                var out = Outcome(added: [c], lines: ["Added \(c.name): \(sub.configs.count) servers. Choose one in its details, or test their ping there."])
+                if !sub.problems.isEmpty { out.lines.append("\(sub.problems.count) could not be read.") }
+                return out
+            }
             var out = addV2Ray(sub.configs, from: "subscription \(url.host ?? "")")
             out.lines.insert("Subscription \(sub.title ?? url.host ?? url.absoluteString): \(sub.configs.count) \(sub.configs.count == 1 ? "server" : "servers").", at: 0)
             if !sub.problems.isEmpty { out.lines.append("\(sub.problems.count) could not be read.") }
             return out
         } catch {
             return Outcome(lines: ["Subscription \(url.host ?? url.absoluteString): \(error.localizedDescription)"])
+        }
+    }
+
+    /// Update: fetches subscription connection `id`'s list again and replaces its servers. The one in use
+    /// stays chosen while it is listed (else the first); its name and settings stay as they are.
+    static func updateSubscription(id: UUID) async -> Outcome {
+        let store = ConnectionStore.shared
+        guard let c = store.connection(id: id), let url = URL(string: c.v2raySubscription) else {
+            return Outcome(lines: ["The subscription address is not valid."])
+        }
+        do {
+            let sub = try await V2RayConfig.fetchSubscription(url)
+            // An answer FiveT can read nothing of says nothing about which servers are gone.
+            guard !sub.configs.isEmpty else {
+                return Outcome(lines: ["Could not update the subscription: none of the servers it lists now could be read. Nothing was changed."])
+            }
+            let servers = sub.configs.map(V2RayConfig.server)
+            let old = Set(c.v2rayServers.map(\.key)), new = Set(servers.map(\.key))
+            var kept = true
+            store.mutate(id: id) { conn in
+                conn.v2rayServers = servers
+                conn.v2raySubscriptionUsage = sub.info
+                // The same server (by its settings, else by its name) stays chosen; a renamed one is taken as is.
+                if let same = servers.first(where: { $0.outbound == conn.v2rayOutbound }) ?? servers.first(where: { $0.key == conn.v2rayLink }) {
+                    V2RayConfig.use(same, in: &conn)
+                } else {
+                    kept = false
+                    V2RayConfig.use(servers[0], in: &conn)
+                }
+            }
+            var line = "\(c.name): \(servers.count) servers now; \(new.subtracting(old).count) new, \(old.subtracting(new).count) removed."
+            if !kept { line += " The server in use is no longer listed: \(servers[0].name) is chosen instead" + (VPNManager.shared.status(for: id) != nil ? ", from the next connect." : ".") }
+            Log.shared.write("[\(c.name)] subscription \(url.host ?? "") updated: \(servers.count) listed")
+            return Outcome(lines: [line])
+        } catch {
+            Log.shared.write("[\(c.name)] subscription \(url.host ?? "") update failed: \(error.localizedDescription)", level: .error)
+            return Outcome(lines: ["Could not update the subscription: \(error.localizedDescription)"])
         }
     }
 
@@ -87,7 +144,7 @@ enum VPNImport {
             }
             let listed = Set(sub.configs.map { V2RayConfig.json($0.outbound) })
             let gone = store.connections.filter {
-                $0.isV2Ray && $0.v2raySubscription == address && !listed.contains($0.v2rayOutbound)
+                $0.isV2Ray && !$0.isSubscription && $0.v2raySubscription == address && !listed.contains($0.v2rayOutbound)
                     && VPNManager.shared.status(for: $0.id) == nil
             }
             for c in gone { store.remove(id: c.id) }
