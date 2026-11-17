@@ -311,8 +311,12 @@ enum V2RayConfig {
     // MARK: JSON configs
 
     /// An Xray/V2Ray JSON config (its proxy outbounds), one outbound, or a list of either.
-    static func importJSON(_ data: Data, name: String) throws -> [Imported] {
+    static func importJSON(_ data: Data, name: String) throws -> (configs: [Imported], problems: [String]) {
         guard let obj = try? JSONSerialization.jsonObject(with: data) else { throw Failure("\(name) is not valid JSON.") }
+        if let sb = singBox(obj) {
+            if sb.configs.isEmpty { throw Failure(sb.problems.first ?? "\(name) holds no server FiveT can use.") }
+            return sb
+        }
         var found: [Imported] = []
         func walk(_ o: Any, _ label: String) {
             if let list = o as? [Any] {
@@ -334,7 +338,62 @@ enum V2RayConfig {
         }
         walk(obj, name)
         if found.isEmpty { throw Failure("\(name) holds no VLESS, VMess, Trojan, Shadowsocks (Outline) or Hysteria2 server.") }
-        return found
+        return (found, [])
+    }
+
+    /// A sing-box config (what panels send to sing-box clients): "outbounds" typed vless, vmess, trojan,
+    /// shadowsocks or hysteria2. Each becomes the share link Xray's parser already understands. nil when
+    /// `obj` is not one. The selector/urltest groups, direct, and the panel's fake "account info"
+    /// servers at 127.0.0.1 are skipped.
+    static func singBox(_ obj: Any) -> (configs: [Imported], problems: [String])? {
+        guard let outs = (obj as? [String: Any])?["outbounds"] as? [[String: Any]],
+              outs.contains(where: { $0["type"] is String && $0["protocol"] == nil }) else { return nil }
+        func enc(_ s: String) -> String { s.addingPercentEncoding(withAllowedCharacters: CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")) ?? s }
+        func text(_ v: Any?) -> String? { ((v as? [String])?.joined(separator: ",") ?? (v as? String))?.trimmed.nonEmpty }
+        var configs: [Imported] = [], problems: [String] = []
+        for o in outs {
+            guard let type = (o["type"] as? String)?.lowercased(), ["vless", "vmess", "trojan", "shadowsocks", "hysteria2"].contains(type),
+                  let host = (o["server"] as? String)?.trimmed, !host.isEmpty, let port = o["server_port"] as? Int else { continue }
+            if ["127.0.0.1", "0.0.0.0", "localhost", "::1"].contains(host.lowercased()) { continue }
+            let name = (o["tag"] as? String)?.trimmed.nonEmpty ?? host
+            if type == "shadowsocks" {
+                guard let m = o["method"] as? String, let pw = o["password"] as? String else { continue }
+                let out: [String: Any] = ["protocol": "shadowsocks", "settings": ["servers": [["address": host, "port": port, "method": m, "password": pw]]]]
+                configs.append(Imported(name: name, outbound: out, host: host, port: port))
+                continue
+            }
+            let tls = o["tls"] as? [String: Any] ?? [:]
+            let reality = tls["reality"] as? [String: Any] ?? [:]
+            let tlsOn = tls["enabled"] as? Bool == true || type == "hysteria2"
+            let realityOn = reality["enabled"] as? Bool == true
+            let flow = text(o["flow"])
+            if type == "vless", flow != nil, !tlsOn {
+                // sing-box cannot carry VLESS encryption (ML-KEM): the entry is a vision flow with no TLS, which no server accepts.
+                problems.append("\(name): uses VLESS encryption (ML-KEM), which this file format cannot describe. Import the panel's link list instead.")
+                continue
+            }
+            var q: [String: String] = [:]
+            let t = o["transport"] as? [String: Any] ?? [:]
+            let net = (t["type"] as? String)?.lowercased() ?? "tcp"
+            if type != "hysteria2" { q["type"] = net }
+            q["security"] = realityOn ? "reality" : tlsOn ? "tls" : "none"
+            if let f = flow { q["flow"] = f }
+            if let v = text(tls["server_name"]) { q["sni"] = v }
+            if let v = text(tls["alpn"]) { q["alpn"] = v }
+            if let v = text((tls["utls"] as? [String: Any])?["fingerprint"]) { q["fp"] = v }
+            if tls["insecure"] as? Bool == true { q["allowInsecure"] = "1" }
+            if realityOn { q["pbk"] = text(reality["public_key"]) ?? ""; q["sid"] = text(reality["short_id"]) ?? "" }
+            if let v = text(t["path"]) { q["path"] = v }
+            if let v = text(t["host"]) ?? text((t["headers"] as? [String: Any])?["host"]) ?? text((t["headers"] as? [String: Any])?["Host"]) { q["host"] = v }
+            if let v = text(t["service_name"]) { q["serviceName"] = v }
+            if let ob = o["obfs"] as? [String: Any], let pw = text(ob["password"]) { q["obfs"] = text(ob["type"]) ?? "salamander"; q["obfs-password"] = pw }
+            let secret = enc(text(o["uuid"]) ?? text(o["password"]) ?? "")
+            let scheme = type == "hysteria2" ? "hysteria2" : type
+            let link = "\(scheme)://\(secret)@\(host.contains(":") ? "[\(host)]" : host):\(port)?"
+                + q.sorted { $0.key < $1.key }.map { "\($0.key)=\(enc($0.value))" }.joined(separator: "&") + "#" + enc(name)
+            do { configs.append(try parse(link: link)) } catch { problems.append("\(name): \(error.localizedDescription)") }
+        }
+        return (configs, problems)
     }
 
     /// One outbound as FiveT keeps it: the proxy part only. Its tag, mux and sockopt are FiveT's to set.
@@ -371,7 +430,7 @@ enum V2RayConfig {
     static func importText(_ text: String, name: String = "Pasted config") -> (configs: [Imported], problems: [String], subscriptions: [URL]) {
         var t = text.trimmed
         if t.hasPrefix("{") || t.hasPrefix("[") {
-            do { return (try importJSON(Data(t.utf8), name: name), [], []) } catch { return ([], [error.localizedDescription], []) }
+            do { let r = try importJSON(Data(t.utf8), name: name); return (r.configs, r.problems, []) } catch { return ([], [error.localizedDescription], []) }
         }
         if !t.contains("://"), let decoded = decodeBase64(t.filter { !$0.isWhitespace }), decoded.contains("://") { t = decoded }
         var configs: [Imported] = [], problems: [String] = [], subs: [URL] = []
