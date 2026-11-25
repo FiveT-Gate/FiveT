@@ -290,6 +290,9 @@ enum V2RayConfig {
             if let sni = q["sni"].nonEmpty ?? q["peer"].nonEmpty ?? hosts.first { t["serverName"] = sni }
             if let fp = q["fp"].nonEmpty { t["fingerprint"] = fp }
             if let alpn = q["alpn"].nonEmpty { t["alpn"] = alpn.split(separator: ",").map { String($0).trimmed } }
+            // Xray accepts these as strings and splits comma-separated pins and names itself.
+            if let pins = q["pcs"].nonEmpty { t["pinnedPeerCertSha256"] = pins }
+            if let names = q["vcn"].nonEmpty { t["verifyPeerCertByName"] = names }
             if let pin = q["pinSHA256"].nonEmpty { t["pinnedPeerCertificateChainSha256"] = [pin] }
             s["security"] = "tls"
             s["tlsSettings"] = t
