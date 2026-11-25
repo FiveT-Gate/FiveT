@@ -77,7 +77,7 @@ def config(proxy, iran_direct, names):
         rules.append({"domain": ["domain:ir"], "outboundTag": "direct"})
         rules.append({"ip": ["ext:geoip-lite.dat:ir"], "outboundTag": "direct"})
         servers.append({"address": "192.168.1.1", "domains": ["domain:ir"], "skipFallback": True})
-    servers += ["tcp://1.1.1.1", "tcp://8.8.8.8"]
+    servers += ["https://1.1.1.1/dns-query", "tcp://1.1.1.1", "tcp://8.8.8.8"]
     if iran_direct:
         servers.append({"address": "192.168.1.1", "expectIPs": ["ext:geoip-lite.dat:ir"]})
     dns = {"tag": "dns-internal", "queryStrategy": "UseIPv4", "servers": servers}

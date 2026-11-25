@@ -2477,7 +2477,9 @@ final class VPNManager: ObservableObject {
     /// 10.0.0.0/8; "172.16.101/24" carries its prefix; "10.1.2.3" is a host → /32.
     static func normalizeCIDR(_ s: String) -> String? {
         let parts = s.split(separator: "/", maxSplits: 1).map(String.init)
-        var octets = parts[0].split(separator: ".").map(String.init)
+        // "" and "/24" have no network part (split drops empty pieces: parts would be empty or just the prefix).
+        guard !s.hasPrefix("/"), let network = parts.first else { return nil }
+        var octets = network.split(separator: ".").map(String.init)
         guard (1...4).contains(octets.count), octets.allSatisfy({ UInt8($0) != nil }) else { return nil }
         let implied = octets.count * 8
         while octets.count < 4 { octets.append("0") }

@@ -237,8 +237,8 @@ gets through the server.
 - **How names are looked up:** a server given by name (`upload.example.com`, as most keys are) is looked up
   once with the Mac's own DNS *before* the tunnel starts, and Xray is given the answer. Left to Xray it
   asked through the tunnel, which needs the server it is looking for, and never connected. The Mac's other
-  names are asked of Xray's DNS over **TCP** through the server (`tcp://1.1.1.1`, `tcp://8.8.8.8`), because
-  Xray 26.10 on macOS 27 cannot bind a UDP socket to the Wi-Fi (`falied to set interface`).
+  names are asked through the proxy using DNS over HTTPS (`https://1.1.1.1/dns-query`), so the VPN server
+  need not allow plain DNS on port 53. The TCP resolvers (`tcp://1.1.1.1`, `tcp://8.8.8.8`) remain as fallbacks.
 - **UDP:** apart from DNS, UDP from the Mac is dropped inside the tunnel (the log says `[tun -> block]`):
   with that same limit it would loop back into the TUN. Web, mail and chat use TCP and are unaffected;
   browsers fall back from QUIC to TCP; calls that need UDP do not work through a V2Ray connection yet.

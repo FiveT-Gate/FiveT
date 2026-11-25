@@ -685,10 +685,9 @@ enum V2RayConfig {
     /// answers blocked names with a wrong address.
     static let tunGateway = "198.18.0.1"
     static let tunAddress = "198.18.0.2"
-    /// DNS servers Xray asks, through the V2Ray server, over TCP: Xray 26.10 on macOS 27 cannot bind a
-    /// UDP socket to the Wi-Fi ("falied to set interface"), so a UDP question to the server's relay
-    /// never gets back out of the TUN, while TCP does (measured: 0.4-0.8 s a name, 0.01 s again).
-    static let remoteDNS = ["tcp://1.1.1.1", "tcp://8.8.8.8"]
+    /// Use HTTPS through the proxy first: some servers close plain DNS connections on port 53.
+    /// The IP literal needs no bootstrap lookup. Keep the TCP resolvers for servers that block DoH.
+    static let remoteDNS = ["https://1.1.1.1/dns-query", "tcp://1.1.1.1", "tcp://8.8.8.8"]
 
     /// The host names (not addresses) the server settings connect to: every "address" in the outbound
     /// (the server, and any other one an XHTTP download setting names). FiveT looks them up before the

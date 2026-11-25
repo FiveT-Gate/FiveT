@@ -1,6 +1,6 @@
 #!/bin/sh
 # Prepares an update of the programs FiveT bundles, without touching this working copy:
-#   a separate worktree (../fiveT-cores) on branch cores-update, reset to main, then
+#   a separate worktree (build/cores-worktree) on branch cores-update, reset to main, then
 #   1. Tools/cores.py bump       pins the newest release inside each core's line, verified by its signature/digests
 #   2. builds the changed programs (the build scripts check versions, linkage and options themselves)
 #   3. Xray only: Tools/test-xray-compat.py, every config shape FiveT writes, old Xray against the new
@@ -11,7 +11,7 @@
 set -eu -o pipefail
 PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 REPO=$(cd "$(dirname "$0")/.." && pwd)
-WT=$(dirname "$REPO")/fiveT-cores
+WT=$REPO/build/cores-worktree
 BR=cores-update
 
 cd "$REPO"

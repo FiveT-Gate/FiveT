@@ -16,3 +16,6 @@ Resources/landing/*.png
 signing.env
 # key that encrypts .fivet backup files (build.sh creates it once; losing it makes old backups unreadable)
 Sources/fivet/BackupKey.swift
+# Python bytecode holds absolute paths of this Mac: never commit or export it
+__pycache__/
+*.pyc

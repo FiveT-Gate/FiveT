@@ -129,6 +129,9 @@ if let first = cliArgs.first {
     case "--check-expressvpn":
         // Express's parsers against sample output, and (read only) what ExpressVPN on this Mac says.
         exit(ExpressCheck.run())
+    case "--check-network":
+        // The route/address helpers behind reconnect, split DNS and the kill switch, against fixed samples.
+        exit(NetworkCheck.run())
     case "--check-sso":
         // SSO codes against a throwaway data folder (FIVET_DATA_DIR, test builds only): a .fivet backup
         // round trip, the merge rules, and optionally the accounts a QR picture holds (a picture path).
